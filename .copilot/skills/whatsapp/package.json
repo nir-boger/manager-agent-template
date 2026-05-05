@@ -1,0 +1,14 @@
+{
+  "name": "nirvana-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright-driven WhatsApp Web automation for Nirvana (read/write, allowlist + preview-first).",
+  "main": "whatsapp.js",
+  "scripts": {
+    "login": "node whatsapp.js login",
+    "list": "node whatsapp.js list-allowed"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}

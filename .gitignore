@@ -1,0 +1,70 @@
+# Log files (local-only audit trails; not source of truth)
+*.log
+
+# Runner lock files — short-lived single-instance guards.
+*.lock
+
+# Inbox-watch operational state — rewritten every 5 min by the runner; not
+# source of truth. The daily activity log (reports/inbox-watch/YYYY-MM-DD.md)
+# IS tracked.
+reports/inbox-watch/state.json
+reports/inbox-watch/pending-items.json
+reports/inbox-watch/*-temp.json
+reports/inbox-watch/.*.json
+reports/inbox-watch/candidates-temp.json
+reports/inbox-watch/items-temp.json
+reports/inbox-watch/ready-temp.json
+reports/inbox-watch/roster-temp.json
+
+# WhatsApp skill — never commit any of these:
+#   - the live Chromium profile (contains WhatsApp Web session/cookies)
+#   - the allowlist (contact / group names are personal data)
+#   - daily action logs (may contain message snippets)
+#   - node_modules under the skill folder (Playwright is heavy)
+.playwright-profiles/
+.copilot/skills/whatsapp/allowlist.txt
+.copilot/skills/whatsapp/node_modules/
+reports/whatsapp/
+
+# Pilates skill — never commit any of these:
+#   - config.json (Wellbe credentials + JWT/refresh tokens + box/membership IDs)
+#   - state.json (booking attempt history)
+#   - daily action logs
+#   - the local Python virtualenv if one is created in-skill
+# (Phase 4 of the templatize-Nirvana refactor moved the skill to examples/personal/.
+#  Keeping the OLD paths too in case the forwarder dir ever picks up a config.json.)
+examples/personal/pilates/config.json
+examples/personal/pilates/state.json
+examples/personal/pilates/.deps-installed
+examples/personal/pilates/.venv/
+examples/personal/pilates/__pycache__/
+.copilot/skills/pilates/config.json
+.copilot/skills/pilates/state.json
+.copilot/skills/pilates/.deps-installed
+.copilot/skills/pilates/.venv/
+.copilot/skills/pilates/__pycache__/
+reports/pilates/
+
+# Team personas skill — HR-sensitive fields removed (Level, Last promotion, Birthday, Hired)
+# Personas files retain working-style, role, and contact info needed for inbox-watch
+.copilot/skills/team-personas/daily-summary-state.txt
+.copilot/skills/team-personas/*.log
+
+# Connect-buddy skill — defense-in-depth.
+# The actual connect data lives OUTSIDE this repo at
+# %USERPROFILE%\.copilot\connect-buddy\ (HR-grade sensitive — `.gitignore` is
+# not a privacy boundary, hence the off-tree path). These rules below exist
+# only in case some future bug ever drops content under the skill folder.
+.copilot/skills/connect-buddy/connects/
+.copilot/skills/connect-buddy/manifest.json
+reports/connect-buddy/
+
+# Local scratch — not meaningful state, never push.
+tmp/
+reports/agent-todos/current-batch.json
+
+# Migration freeze flag — local-only kill switch used during refactors. When
+# present, side-effect helpers (Send-RunnerSummaryEmail, etc.) skip COM calls
+# and return cleanly. Activated either via this file or via
+# $env:NIRVANA_MIGRATION_MODE. Never commit.
+config/migration-mode.txt

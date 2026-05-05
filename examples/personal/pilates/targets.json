@@ -1,0 +1,23 @@
+{
+  "_schema": "Each target is a standing wishlist row. day_of_week: 0=Sun,1=Mon,...,6=Sat. time: HH:MM in gym-local time. registration_lead_hours: how many hours before class registration opens (Wellbe = 167 = exactly 1 week minus 1 hour). The scheduled task fires registration_lead_hours - small_buffer before the class.",
+  "targets": [
+    {
+      "id": "mon-10",
+      "name": "Reformer Pilates",
+      "day_of_week": 1,
+      "time": "10:00",
+      "registration_lead_hours": 167,
+      "join_waitlist": true,
+      "enabled": true
+    },
+    {
+      "id": "wed-10",
+      "name": "Reformer Pilates",
+      "day_of_week": 3,
+      "time": "10:00",
+      "registration_lead_hours": 167,
+      "join_waitlist": true,
+      "enabled": true
+    }
+  ]
+}

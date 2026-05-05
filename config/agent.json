@@ -1,0 +1,62 @@
+{
+  "_comment": "Runtime configuration for the agent. This file is the source of truth for agent identity, manager identity, ADO/team scope, paths, locale, signature wording, voice, and feature flags. Helpers in .copilot/skills/_shared/config.ps1 read it. Discovered by walking up from $PSScriptRoot looking for config/agent.json (or via $env:AGENT_ROOT). Phase 5 of the templatize-Nirvana refactor extracted these values from hardcoded strings in helpers and runners.",
+  "agent": {
+    "name": "YourAgent",
+    "trigger_aliases": [
+      "youragent",
+      "@youragent"
+    ],
+    "mail_subject_prefix": "[YourAgent]",
+    "idempotency_tag": "YourAgentProcessed",
+    "banner_path": "config/banner.txt"
+  },
+  "manager": {
+    "first_name": "You",
+    "full_name": "Your Name",
+    "email": "you@example.com",
+    "alias": "youralias"
+  },
+  "ado": {
+    "org": "your-ado-org",
+    "project": "your-project"
+  },
+  "team": {
+    "name": "Your Team",
+    "alias": "team",
+    "channel_url": ""
+  },
+  "tasks": {
+    "prefix": "AGT"
+  },
+  "paths": {
+    "_comment": "Repo-local paths are stored as forward-slash paths relative to the agent root (the dir containing config/). External paths can use %ENVVAR% references (e.g. %USERPROFILE%) which are expanded at use time by Resolve-AgentPath. Do NOT store an absolute agent_root here: it is derived from the location of this file.",
+    "reports_root": "reports",
+    "team_personas_people": ".copilot/skills/team-personas/people",
+    "connect_buddy_root": "%USERPROFILE%/.copilot/connect-buddy"
+  },
+  "locale": {
+    "language": "en",
+    "timezone": "America/New_York",
+    "timezone_abbreviation": "ET",
+    "work_week_start": "Mon"
+  },
+  "signature": {
+    "_comment": "Signature wording is assembled in _shared/signature.ps1 from manager.first_name + agent.name. The {first} placeholder in auto_reply_disclosure is substituted with manager.first_name. brand_html, when non-empty, overrides the default _Format-AgentBrand auto-detection (which bolds the manager.first_name prefix when agent.name starts with it -- e.g. 'Nir' + 'Nirvana' -> '<strong>Nir</strong>vana'). whatsapp_group_signature_he is a Hebrew literal used by the whatsapp skill in the Your Team group only; ships empty in template defaults. notice_path points at an optional one-line announcement file (relative to agent root); empty file = no notice.",
+    "auto_reply_disclosure": "{first} is on the thread; reply directly if I got it wrong.",
+    "brand_html": "",
+    "whatsapp_group_signature_he": "",
+    "notice_path": "config/signature-notice.txt"
+  },
+  "voice": {
+    "profile_path": "config/voice.md"
+  },
+  "features": {
+    "inbox_watch": false,
+    "team_milestones": false,
+    "connect_buddy": false,
+    "whatsapp": false,
+    "pilates": false,
+    "codebase": false
+  }
+}
+

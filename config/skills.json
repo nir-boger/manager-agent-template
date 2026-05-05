@@ -1,0 +1,211 @@
+{
+  "_comment": "Single source of truth for the skills index. AGENTS.md is rendered from this manifest. doctor.ps1 verifies every entry's path/entrypoint exists. tools/build-snapshot.ps1 uses ship_in_snapshot to decide what goes in the public template. Surface tier: 'engine' = team-management surface, ships in template default; 'example' = personal-life reference (e.g. Partner, Pilates); 'local-only' = local-install carve-outs (e.g. forwarders) that the public template should NOT carry. show_in_agents controls visibility in the AGENTS.md skills table.",
+  "skills": [
+    {
+      "name": "sprint-create",
+      "surface": "engine",
+      "path": ".copilot/skills/sprint-create",
+      "entrypoint_path": ".copilot/skills/run-sprint-create.ps1",
+      "triggers": [
+        "create sprint",
+        "new sprint",
+        "prepare next sprint"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "sprint-report-daily",
+      "surface": "engine",
+      "path": ".copilot/skills/sprint-report-daily",
+      "entrypoint_path": ".copilot/skills/run-sprint-report-daily.ps1",
+      "triggers": [
+        "daily report",
+        "sprint status",
+        "where are we"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "pbi-assign-tasks",
+      "surface": "engine",
+      "path": ".copilot/skills/pbi-assign-tasks",
+      "entrypoint_path": ".copilot/skills/run-pbi-assign-tasks.ps1",
+      "triggers": [
+        "assign to all",
+        "propagate PBI assignees",
+        "assign tasks to PBI owner",
+        "fill task assignees"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "email-team",
+      "surface": "engine",
+      "path": ".copilot/skills/email-team",
+      "entrypoint_path": null,
+      "triggers": [
+        "email the team",
+        "send an email",
+        "mail the team",
+        "email kdms",
+        "email the daily report"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "post-to-teams",
+      "surface": "engine",
+      "path": ".copilot/skills/post-to-teams",
+      "entrypoint_path": null,
+      "triggers": [
+        "post to teams",
+        "post to the team channel",
+        "teams message",
+        "tell the team on teams",
+        "post the daily report to teams"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "agent-todos",
+      "surface": "engine",
+      "path": ".copilot/skills/agent-todos",
+      "entrypoint_path": ".copilot/skills/run-agent-todos.ps1",
+      "triggers": [
+        "process my nirvana agent",
+        "run my nirvana agent todos",
+        "scan nirvana agent",
+        "nirvana agent todos",
+        "what's in my agent list",
+        "anything in my agent list"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "codebase",
+      "surface": "engine",
+      "path": ".copilot/skills/codebase",
+      "entrypoint_path": null,
+      "triggers": [
+        "ask kusto",
+        "in the codebase",
+        "where is",
+        "where does ... live",
+        "how does ... work",
+        "review this diff",
+        "review PR",
+        "kusto codebase",
+        "refresh the kusto codebase map",
+        "reindex kusto"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "team-personas",
+      "surface": "engine",
+      "path": ".copilot/skills/team-personas",
+      "entrypoint_path": null,
+      "triggers": [
+        "who is",
+        "tell me about",
+        "what does ... do",
+        "use persona for",
+        "persona",
+        "load ...'s persona",
+        "draft reply to",
+        "write to",
+        "rebuild personas",
+        "refresh personas",
+        "reindex personas",
+        "team-personas"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "inbox-watch",
+      "surface": "engine",
+      "path": ".copilot/skills/inbox-watch",
+      "entrypoint_path": ".copilot/skills/run-inbox-watch.ps1",
+      "triggers": [
+        "watch my inbox",
+        "scan inbox for hi nirvana",
+        "scan inbox for nirvana mails",
+        "process direct-report inbox",
+        "inbox-watch"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "team-milestones",
+      "surface": "engine",
+      "path": ".copilot/skills/team-milestones",
+      "entrypoint_path": ".copilot/skills/run-team-milestones-daily.ps1",
+      "triggers": [
+        "remind me of birthdays",
+        "team milestones",
+        "upcoming birthdays",
+        "upcoming work anniversaries",
+        "whose birthday is coming up",
+        "team-milestones"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "whatsapp",
+      "surface": "engine",
+      "path": ".copilot/skills/whatsapp",
+      "entrypoint_path": null,
+      "triggers": [
+        "read whatsapp",
+        "whatsapp messages from",
+        "what did X say on whatsapp",
+        "send whatsapp",
+        "whatsapp X",
+        "tell X on whatsapp",
+        "list whatsapp allowlist",
+        "whatsapp login"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": ""
+    },
+    {
+      "name": "pilates",
+      "surface": "example",
+      "path": "examples/personal/pilates",
+      "entrypoint_path": "examples/personal/pilates/pilates.ps1",
+      "triggers": [
+        "show me my upcoming pilates registrations",
+        "pilates status",
+        "register me for pilates",
+        "cancel pilates",
+        "list pilates classes",
+        "add a pilates target",
+        "pilates"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "auto-books Reformer Pilates via direct Arbox API; per-slot scheduled tasks fire 10s before registration opens, poll-and-book, then email a confirmation."
+    }
+  ]
+}

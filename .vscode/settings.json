@@ -1,0 +1,7 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "Test-Path": true,
+        "New-Item": true,
+        "Add-Content": true
+    }
+}

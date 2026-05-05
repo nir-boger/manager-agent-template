@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "comment": [
+    "Skill rename map for the manager-agent-template snapshot.",
+    "",
+    "Some skills carry the agent's own brand or its manager's flavor in their",
+    "folder name (e.g. 'codebase' bakes in Nir's team; 'agent-todos'",
+    "bakes in the agent's name). For the public template repo, the snapshot",
+    "process renames them to brand-neutral folder names AND updates every",
+    "reference (SKILL.md cross-links, AGENTS.md trigger table, run-*.ps1).",
+    "",
+    "On Nir's local install the OLD names are kept indefinitely. Scheduled tasks,",
+    "saved Nir preferences, and existing TODO files reference the old names; we",
+    "do NOT rename in place. Phase 9 (snapshot to manager-agent-template) reads",
+    "this file and applies the renames during the public-repo build.",
+    "",
+    "Schema: { renames: [{ from, to, reason }, ...], aliases_for_one_release: bool }"
+  ],
+  "renames": [
+    {
+      "from": "codebase",
+      "to": "codebase",
+      "reason": "'kusto' is Nir's team's product. Other managers fork this for their own codebase. The skill itself is generic — index a repo, answer questions, find docs."
+    },
+    {
+      "from": "agent-todos",
+      "to": "agent-todos",
+      "reason": "'nirvana' is the agent display name. The skill is the generic TODO-runner pattern: scan a TODO list, classify, dispatch to other skills, email a summary."
+    }
+  ],
+  "aliases_for_one_release": true,
+  "alias_strategy": [
+    "When aliases_for_one_release is true, the snapshot keeps an empty stub at",
+    "the OLD path with a single SKILL.md that says: 'this skill was renamed to",
+    "<new>. Trigger phrases still work; please update any direct references.'",
+    "This eases migration for anyone who took an early snapshot. Drop the",
+    "stubs in the next major release."
+  ]
+}
+
