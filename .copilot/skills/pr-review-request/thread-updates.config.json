@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "updateSubjectPrefix": "[Nirvana][PR Status Update]",
+  "detectFirstReviewVia": "votes+comments",
+  "_notes": "Update emails use subject `<updateSubjectPrefix>[<prId>` with NO trailing ']', so the flow can extract the PR id with last(split(Subject,'[')). The email body is taken verbatim into the Teams thread. Correlation to the original thread is done in Nir's Power Automate flow keyed by PR id (no messageId/ledger needed on the runner side). Set enabled=true only after that update flow exists. While enabled=false the runner never sends update emails."
+}

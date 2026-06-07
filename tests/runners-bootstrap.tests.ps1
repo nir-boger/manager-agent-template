@@ -60,7 +60,7 @@ Describe 'run-*.ps1 - configurable email composition' {
         Assert-Match "agent\.mail_subject_prefix" $milestonesContent
     }
 
-    It 'run-team-milestones-daily.ps1 does NOT hard-code youralias@microsoft.com as a literal recipient' {
+    It 'run-team-milestones-daily.ps1 does NOT hard-code someone@example.com as a literal recipient' {
         $hasLiteralEmail = $milestonesContent -match "(?im)\\\$mail\.To\s*=\s*['""]youralias@"
         Assert-True (-not $hasLiteralEmail) -Because 'recipient must be from manager.email'
     }
@@ -142,6 +142,46 @@ Describe 'examples/personal/pilates - configurable surface' {
         # The literal default is acceptable; the in-loop $taskName must use $taskPrefix
         $hasLiteralTask = $regContent -match '(?im)\$taskName\s*=\s*"DM-PilatesAuto-'
         Assert-True (-not $hasLiteralTask) -Because '$taskName must be derived from $taskPrefix'
+    }
+}
+
+Describe 'run-*.ps1 - centralized copilot invocation (P1)' {
+
+    # Every runner/impl that spawns the agent must go through the shared
+    # Invoke-CopilotAgent helper, never a hand-rolled `& copilot -p $prompt`
+    # (which mis-quotes large prompts under wscript -> run-hidden.vbs).
+    $agentInvokers = @(
+        'run-inbox-watch.ps1'
+        'run-agent-todos.ps1'
+        'run-pbi-assign-tasks.ps1'
+        'run-sprint-create.ps1'
+        'run-sprint-report-daily.ps1'
+        'run-pr-review-assistant.ps1'
+    )
+
+    foreach ($runner in $agentInvokers) {
+        $path = Join-Path $skillsRoot $runner
+        if (-not (Test-Path $path)) { continue }
+        $content = Get-Content -Raw -Encoding UTF8 $path
+
+        It "$runner calls Invoke-CopilotAgent" {
+            Assert-Match 'Invoke-CopilotAgent' $content
+        }
+
+        It "$runner does NOT hand-roll '& copilot -p `$prompt'" {
+            $hasRawInvoke = $content -match '&\s*copilot\s+-p\s+\$'
+            Assert-True (-not $hasRawInvoke) -Because "$runner must use Invoke-CopilotAgent"
+        }
+    }
+
+    It 'runner-prelude.ps1 dot-sources invoke-agent.ps1' {
+        $prelude = Get-Content -Raw -Encoding UTF8 (Join-Path $skillsRoot '_shared\runner-prelude.ps1')
+        Assert-Match 'invoke-agent\.ps1' $prelude
+    }
+
+    It 'runner-prelude.ps1 dot-sources comms.ps1 (P3 channel-adapter)' {
+        $prelude = Get-Content -Raw -Encoding UTF8 (Join-Path $skillsRoot '_shared\runner-prelude.ps1')
+        Assert-Match 'comms\.ps1' $prelude
     }
 }
 

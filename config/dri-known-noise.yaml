@@ -1,0 +1,32 @@
+# DRI weekly pulse — known-noise rules.
+#
+# Each rule has a substring signature (case-insensitive). When ANY of these
+# substrings appears in a row's combined text (id + event_text + activity_type
+# + message + raw_first_line), the row is treated as noise: removed from the
+# main tables, summed into "Known-noise events filtered", and listed in the
+# collapsed <details> block.
+#
+# Add new entries here when a chronic error is verified non-actionable. Keep
+# `reason` short — it ships in the email so Nir / future-Nir remembers why.
+
+rules:
+  - signature: ContentLengthReadStream
+    label: Azure SDK NRE (HttpConnection.ContentLengthReadStream)
+    reason: |
+      Chronic low-rate .NET/Azure SDK bug — concurrent dispose of HTTP keep-alive
+      connection. NOT a Kusto regression. Verified across DM + engine
+      2026-05-11 (~100-200 events/wk fleet-wide).
+
+  - signature: BlobPersistentStorageFile.DownloadToFileAsync
+    label: Azure SDK NRE (BlobPersistentStorageFile.DownloadToFileAsync)
+    reason: Same Azure SDK HTTP keep-alive bug. NOT a Kusto regression.
+
+  - signature: RunRetention
+    label: RunRetention 520 InternalServiceError
+    reason: |
+      Known transient engine-side error during retention. PBI 23086150
+      tracking partial drip. Treat as noise unless trend rises >2x.
+
+  - signature: DataRetentionPerformer.DataRetentionFullRun
+    label: RunRetention 520 InternalServiceError
+    reason: Same as RunRetention noise pattern.

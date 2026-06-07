@@ -32,7 +32,15 @@
     "_comment": "Repo-local paths are stored as forward-slash paths relative to the agent root (the dir containing config/). External paths can use %ENVVAR% references (e.g. %USERPROFILE%) which are expanded at use time by Resolve-AgentPath. Do NOT store an absolute agent_root here: it is derived from the location of this file.",
     "reports_root": "reports",
     "team_personas_people": ".copilot/skills/team-personas/people",
-    "connect_buddy_root": "%USERPROFILE%/.copilot/connect-buddy"
+    "connect_buddy_root": "%USERPROFILE%/.copilot/connect-buddy",
+    "daily_capture_personas": "reports/daily-capture/published/personas",
+    "daily_capture_summary": "reports/daily-capture/published/daily-summary"
+  },
+  "logs": {
+    "_comment": "Housekeeping policy for the runtime-only (gitignored) reports/logs folder, consumed by run-logs-cleanup.ps1 (scheduled DM-LogsCleanup). retention_days: *.log files older than this are pruned. keep_min_per_prefix: newest N logs per flow prefix are always kept as a safety net. grace_hours: files modified within this window are never touched (protects actively-appending logs).",
+    "retention_days": 14,
+    "keep_min_per_prefix": 5,
+    "grace_hours": 6
   },
   "locale": {
     "language": "en",

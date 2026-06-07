@@ -11,7 +11,11 @@
  * Safety: strict allowlist (`allowlist.txt`); send is preview-only unless
  * `--confirm SEND` is passed (literal string `SEND`, case-sensitive).
  *
- * No signature, no joke, no auto-poll. See SKILL.md for the contract.
+ * Signature mandatory on every send (saved Nir preference 2026-05-06): the
+ * caller composes the body with the `WhatsAppGroupHe` signature already
+ * appended. Joke is off by default; the `Your Team Group`
+ * group also gets a Hebrew one-liner. No auto-poll. See SKILL.md for the
+ * full contract.
  */
 
 const path = require('path');
@@ -157,7 +161,7 @@ async function launchContext({ headless }) {
             // throttles background/occluded windows; that can quietly drop the
             // relay socket and leave a "sent" bubble stuck on the pending
             // clock forever — the root cause of the 2026-05-02 missed send to
-            // Sally (bubble rendered optimistically, never relayed).
+            // Partner (bubble rendered optimistically, never relayed).
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
             '--disable-background-timer-throttling',
@@ -450,7 +454,7 @@ async function cmdSend(args) {
         }
         // Re-check offline state immediately before pressing Enter — connection
         // can drop between openChat() and the send, and a stuck pending bubble
-        // is the visible symptom (the wire issue Sally hit on 2026-05-02).
+        // is the visible symptom (the wire issue Partner hit on 2026-05-02).
         const offlinePreEnter = await detectOfflineBanner(page);
         if (offlinePreEnter) {
             throw new Error(`WhatsApp Web went offline before send ("${offlinePreEnter}"). Reconnect on your phone and retry.`);
@@ -617,3 +621,4 @@ function cmdListAllowed() {
         process.exit(1);
     }
 })();
+

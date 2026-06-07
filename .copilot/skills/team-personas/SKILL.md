@@ -14,10 +14,10 @@ Give Nirvana persistent, per-person knowledge of the **Your Team** so it can:
 - Team overview: `<repo>\.copilot\skills\team-personas\team-overview.md`
 - **Ownership snapshot:** `<repo>\.copilot\skills\team-personas\ownership-snapshot.md` — who owns what across the team's Epics → Features → PBIs/Bugs → Tasks plus the active sprint. Hand-curated; refresh on triggers like *"refresh ownership snapshot"*, *"who's working on X"*, *"who owns Y"*, *"update the team ownership map"*. Refresh path: WIQL on Epics + Features under both DM area paths, then `wit_get_work_items_for_iteration` for the current iteration of `Your Team`, then sweep off-sprint actives for directs that don't appear in the sprint.
 - **Upstream source A — Cowork raw persona drops.** A separate Copilot-in-M365 agent named **Cowork** drops **raw** per-person data under `C:\Users\youralias\OneDrive\YourAgent\Personas\<YYYY-MM-DD>\`. Two file formats are auto-detected by `run-personas-import.ps1`:
-  - **JSON (current Cowork output)** — schema `{ format, person_file, capture_window_start, capture_window_end, content }` where `content` is a markdown blob with `## Teams Messages (N)` + `## Emails (N)` blocks containing verbatim quoted bodies. Filename convention is `PascalCase_Underscore.json` (e.g. `Asaf_Mahlev.json`, `Ran_BenShmuel.json`); the runner converts to kebab-case alias by splitting on underscore AND on CamelCase boundaries (so `Ran_BenShmuel` → `ran-ben-shmuel`). Hebrew is encoded as `\uXXXX` and decodes natively via `ConvertFrom-Json`. **Behavior:** mines behavioral quotes (Hebrew + English regex pool covering channel preferences, stated positions, boundary signals, pushback invites, after-hours apologies) + top email subjects, appends idempotent dated lines to `people/<alias>.md` ## Daily observations. Does **not** overwrite the persona template — Cowork is the collector, Nirvana is the analyst.
+  - **JSON (current Cowork output)** — schema `{ format, person_file, capture_window_start, capture_window_end, content }` where `content` is a markdown blob with `## Teams Messages (N)` + `## Emails (N)` blocks containing verbatim quoted bodies. Filename convention is `PascalCase_Underscore.json` (e.g. `Teammate1.json`, `Teammate9.json`); the runner converts to kebab-case alias by splitting on underscore AND on CamelCase boundaries (so `Teammate9` → `ran-ben-Teammate9`). Hebrew is encoded as `\uXXXX` and decodes natively via `ConvertFrom-Json`. **Behavior:** mines behavioral quotes (Hebrew + English regex pool covering channel preferences, stated positions, boundary signals, pushback invites, after-hours apologies) + top email subjects → idempotent dated lines in `## Daily observations`. **Also mines structured signal** (ADO work item IDs, PR IDs, repo mentions, @mentions, email From/To/Cc) → hot-cache counters in `## Areas of ownership` / `## Project ledger` / `## Frequent collaborators` (see "Hot/cold cache" below). Does **not** overwrite the persona template — Cowork is the collector, Nirvana is the analyst.
   - **Markdown (legacy / future synthesized drops)** — full persona template overwrite; preserves curated `## Notes`, `## Daily observations`, and `## Employment` (existing-first, dedupe; Employment block is preserved verbatim from existing file).
 
-  Importer: `.copilot/skills/run-personas-import.ps1`, scheduled task `DM-PersonasImport`. The `.ps1` file has a UTF-8 BOM so Hebrew regex literals parse correctly. **Emails Nir a summary** at the end of each run that imported anything (or hit errors).
+  Importer: `.copilot/skills/run-personas-import.ps1`, scheduled task `DM-PersonasImport`. The `.ps1` file has a UTF-8 BOM so Hebrew regex literals parse correctly. **Emails Nir a summary** at the end of each run that imported anything (or hit errors). Raw drops are **archived, not deleted** — see "Hot/cold cache" below.
 - **Upstream source B — Cowork daily summary.** Cowork also drops a daily JSON summary at `C:\Users\youralias\OneDrive\YourAgent\DailySummary\DailySummary_<YYYY-MM-DD>.json` covering the last 24h of Nir's email + Teams + ADO surface, including non-direct people (peers, partner-team folks, customers). Nirvana parses it, routes each person to the right store (directs → `people/`, others → `contacts/`), appends a `(daily)` line to their observations, then deletes the source JSON + companion `.md` stub. Importer: `.copilot/skills/run-daily-summary-import.ps1`, processed-state tracked in `<repo>\.copilot\skills\team-personas\daily-summary-state.txt`. **Emails Nir a summary** at the end of each run that touched anything.
 - **Upstream source C — Live ADO signal (per direct, build-time only).** When refreshing or building a persona, Nirvana sweeps Azure DevOps for that direct's *current* engineering activity so the persona reflects what they're actually shipping — not just what shows up in mail/Teams. Goal: Nir should be able to read any persona and know what that person is working on this sprint, like he'd know if he were tracking it himself. For each direct, query (org `your-ado-org`, project `One`):
   - **Active + recently-merged PRs (last ~60 days)** authored by the direct — `repo_list_pull_requests_by_repo_or_project(created_by_user=<alias>@microsoft.com, project='One', status=All, top=50)`. Capture: PR ID, title, repo, status (Active/Completed/Abandoned/Draft), source/target branch (the `user/<alias>/...` source branch is itself a signal), creation + completion date, top reviewers. Use to anchor `## Strengths`, `## Recent Topics & Projects`, and `## Current focus`. (Project-wide query is fine — the team's PR volume is bounded; team-specific repo whitelist lives in `team-personas/ado-repos.txt` for cases where Nir wants to scope down. Currently seeded with `Azure-Kusto-Service` since that's where 100% of the DM team's recent PRs land — Nir can add more if/when the team starts shipping into other repos.)
@@ -29,6 +29,32 @@ Give Nirvana persistent, per-person knowledge of the **Your Team** so it can:
 - Both runners use the shared helper `.copilot/skills/_runner-email.ps1` to send the summary mail; subjects are `[Nirvana] <runner> - <stats>` and inbox-watch is configured to ignore that prefix.
 - See `sources.txt` for the running history of both pipelines.
 - Net effect: Cowork supplies the **raw signal**; Nirvana owns **synthesis, routing, and persistence**. Treat structured sections (Snapshot, Recent Topics, Communication Style, behavioral sections) as Nirvana-authored from raw input; `## Notes` and `## Daily observations` stay curated/append-only.
+
+## Hot/cold cache
+Persona memory is split into two tiers so Nirvana can both **answer fast** ("what does Teammate1 chew on?") and **answer deep** ("walk me through Teammate1's last quarter") without dumping every raw byte into context.
+
+- **Hot cache** lives in `people/<alias>.md` — always loaded when a skill consults the persona. Includes the curated narrative (`## Snapshot`, `## Notes`, `## Recent Topics & Projects`, etc.) **plus three auto-maintained sections** that grow forever from Cowork drops:
+  - **`## Areas of ownership`** — sticky themes (WIT IDs, PR IDs, repo names from `ado-repos.txt`) with `first / last / count` counters. Sorted by last-touch desc.
+  - **`## Project ledger`** — append-only "which areas first appeared this month" log, sorted desc. The longer-arc record of what each person was working on.
+  - **`## Frequent collaborators`** — top @mentions in chat + email From/To/Cc, with `first / last / count` counters. Nir, bots, and the persona subject themselves are filtered.
+- **Cold cache** lives at `reports/personas-archive/<YYYY-MM-DD>/<File>.json` — the **raw Cowork JSON drops, kept forever locally** (gitignored; bodies contain verbatim chat + email text). Used for retroactive Q&A ("what was Roni's week about"), retuning mining rules, and full rebuilds.
+- **State sidecars** live at `.copilot/skills/team-personas/people-state/<alias>.json` — the source of truth for the three auto-maintained sections. Gitignored, since derived data: `run-personas-rebuild.ps1` can always reconstruct them from the cold cache.
+
+How it flows:
+
+1. **Import (every Cowork drop):** `run-personas-import.ps1` mines the JSON for area/collaborator signal, folds it into the alias's state sidecar (counters, first/last dates, monthly ledger entry), re-renders the three sections in the persona file, then **moves** the raw JSON to `reports/personas-archive/<date>/` instead of deleting it.
+2. **Rebuild (on demand):** `run-personas-rebuild.ps1` walks every dated archive folder in order, replays each drop through the same mining helper, and rewrites the state sidecars + the three persona sections from scratch. Use after changing mining rules, adding a vocabulary entry, or recovering from a lost sidecar.
+3. **Lookup / Draft / Planning modes:** always consult the hot cache only. The cold cache is read-only — open it explicitly when Nir asks a retroactive question.
+
+What "promote" means here: lift signal from cold → hot cache. **Has nothing to do with HR / career promotion.** Performance verdicts, clinical labels, and HR-grade judgments stay banned under "Hard rules — privacy & safety" regardless of tier.
+
+Mining rules (current vocabulary; tunable in `team-personas/persona-mining.ps1`):
+
+- **Areas:** `#NNNNNNN` work item IDs (7–9 digits, hash-prefix or kind-prefix like `PBI #...` / `Bug ...` / `Task ...`); `PR <id>` / `Pull Request <id>`; any repo name listed in `team-personas/ado-repos.txt` (case-insensitive substring).
+- **Collaborators:** Teams `@Display Name` mentions on blockquoted lines (each word must start `Uppercase + lowercase` — drops trailing `FYI` / `ASAP` / `please` / `hi`); email `From:` / `To:` / `Cc:` headers with `<email>` syntax.
+- **Filters:** `Your Name`, `Nirvana`, the persona subject themselves, and a standard bot/automation denylist (`kopsMI`, `GitOps`, `Microsoft Security`, etc.) are excluded from collaborators.
+
+The `## Daily observations` filtered-signal pipeline (5 behavioral patterns + top-3 email subjects) is unchanged — daily-observations is the human-scannable layer; the three auto-maintained sections are the cumulative one. Both live in the persona file.
 
 ## Persona-building philosophy
 Personas are a **coaching tool for Nir**, not a directory entry. Every persona Nirvana generates, refreshes, or appends to must aim to make Nir a better manager for that specific person:
@@ -51,7 +77,9 @@ These principles override the "minimum viable section" tendency — prefer one r
 | "use persona for X", "persona X", "load X's persona" | **Load mode** — pull the full persona into context for the rest of the conversation. |
 | "draft reply to X about …", "write to X …" | **Draft mode** — compose the message using the persona's style/level. Routed through `email-team` or `post-to-teams` for actual sending. |
 | "rebuild personas", "refresh personas", "reindex personas" | **Refresh mode** — re-parse the source files at the configured source path and regenerate `people/*.md` + `team-overview.md`. |
+| "rebuild persona hot cache", "replay persona archive", "rebuild areas / ledger / collaborators" | **Hot-cache rebuild mode** — run `.copilot/skills/run-personas-rebuild.ps1` (optionally `-Alias <name>` / `-DryRun` / `-KeepExisting`). Walks every JSON drop in `reports/personas-archive/` and rewrites the three auto-maintained sections (`## Areas of ownership`, `## Project ledger`, `## Frequent collaborators`) + the `people-state/<alias>.json` sidecar from scratch. Never touches hand-curated sections. Use after changing the mining rules or if the sidecar JSONs are lost. |
 | "team-personas" alone | Show: source path, # of personas, last refresh date. |
+| "what should X focus on", "next planning for X", "what to give X", "what to assign X", "X's growth plan" | **Planning mode** — load `people/<alias>.md`, surface `## Planning input` (verbatim, dated) + `## Growth edge & stretch opportunities` + `## Current focus` together. Treat Planning input as the highest-weight signal: it's the person's *own* stated direction or Nir's standing routing rule for them. Never silently drop a Planning input bullet when answering. |
 
 ## Cross-cutting auto-enrichment (other skills)
 Whenever another Nirvana skill is composing text **for or about** a known team member (subject is a person; To/Cc contains a known alias; review of a PR authored by a known alias), Nirvana **silently** pulls that person's `people/<alias>.md` into context before drafting.
@@ -98,6 +126,23 @@ Use this template when generating/refreshing. All sections optional — omit emp
 ## Voice rules
 <Optional. Per-person tone/emoji/language directives that any Nirvana skill talking *to* this person must honor. One bullet per rule, format: `<token/signal> — <when / when not>`. Examples: "🔥 emoji — one or two per upbeat reply, skip on incidents/performance" / "Hebrew OK in 1:1, English in group threads" / "≤4 lines, no preamble". Skills must read this section instead of hardcoding per-person rules.>
 
+## Areas of ownership
+<!-- auto-maintained by run-personas-import.ps1 — do not hand-edit. Curated context goes in ## Notes. -->
+<Sticky themes (WIT IDs, PR IDs, repo names) with `first / last / count` counters. Sorted by last-touch desc. Always rebuildable from the cold cache. Example:>
+- WIT 12345678 -- first 2026-04-12 -- last 2026-05-14 -- 23 mentions
+- Azure-Kusto-Service repo -- first 2026-04-01 -- last 2026-05-14 -- 41 mentions
+
+## Project ledger
+<!-- auto-maintained: first month each area was observed. Append-only by design. -->
+<Monthly snapshot — which areas first appeared each month. Useful for "what was X working on in April".>
+- 2026-05: Business Events
+- 2026-04: Geneva DM integration, Azure-Kusto-Service repo
+
+## Frequent collaborators
+<!-- auto-maintained: @mentions in chat + email From/To/Cc. Bots and Nir himself are filtered. -->
+<Top N by interaction count; updated on every Cowork drop. Example:>
+- Zvi Schneider -- first 2026-04-15 -- last 2026-05-14 -- 18 interactions
+
 ## Working style
 <How they communicate: terse vs. verbose, async vs. sync, formality, English level, timezone>
 
@@ -127,6 +172,9 @@ Use this template when generating/refreshing. All sections optional — omit emp
 
 ## Current focus
 <What they're working on this sprint / quarter, if known>
+
+## Planning input
+<Standing signals Nir wants surfaced whenever the question is "what should this person focus on next?" — sprint planning, PBI assignment, growth conversations, stretch-work routing. Dated bullets, sourced from 1:1s or explicit asks from Nir / the person themselves. Different from Growth edge: these are *the person's own* career/scope preferences and Nir's standing routing rules for them, not just stretch ideas Nirvana inferred. Example: "2026-05-12 (1:1): wants more core-DM work, route lighter tooling elsewhere.">
 
 ## Motivations & drivers
 <What energizes this person and what drains them. Use the lens that fits — common drivers include: mastery / craft, autonomy, impact / scope, recognition, growth / learning, belonging / team, security / stability, ownership. Anchor to evidence wherever possible.>
@@ -183,6 +231,9 @@ Use this template when generating/refreshing. All sections optional — omit emp
 ## Notes
 <Anything else Nir has told me. Date-stamped lines preferred:>
 - 2026-04-29: <observation / note>
+<!-- nirvana:vacation-status -->
+- **Vacation:** <auto-maintained by run-team-vacation-watch.ps1 — do not hand-edit>
+<!-- /nirvana:vacation-status -->
 
 ## Daily observations
 <Append-only running log of small day-to-day signals Nirvana picks up — one line per signal, never overwrite. Same artifact-anchored format as code-derived notes. Used to grow the persona slowly over time; promote recurring patterns into Strengths / Growth edge during the next refresh.>
@@ -191,6 +242,16 @@ Use this template when generating/refreshing. All sections optional — omit emp
 ## Sources
 <Files this persona was built from, with line refs if useful>
 ```
+
+### Managed vacation block (`<!-- nirvana:vacation-status -->`)
+The `team-vacation-watch` skill maintains a single deterministic line inside a
+`<!-- nirvana:vacation-status -->` … `<!-- /nirvana:vacation-status -->` region under
+`## Notes`. It is **upserted** (region replaced in place) on each daily scan — either
+"On vacation YYYY-MM-DD..YYYY-MM-DD (per team calendar, as of YYYY-MM-DD)" or
+"Not on vacation (as of YYYY-MM-DD)". Do not hand-edit it; hand-written `## Notes`
+lines outside the markers are preserved. The persona importer
+(`run-personas-import.ps1` / `Write-PersonaSections`) treats `## Notes` as append-only
+and never rewrites it, so this managed block survives every refresh.
 
 ## Refresh mode — steps
 1. Read `sources.txt` in this skill folder for the configured source path. If missing or empty, ask Nir for the path and write it to `sources.txt`.
@@ -295,7 +356,7 @@ Importer (`run-daily-summary-import.ps1`, processed state in `daily-summary-stat
 1. Find unprocessed `DailySummary_<date>.json` files in `Nirvana\DailySummary\`.
 2. Parse the markdown content; extract every `### <Name> — ...` block under `## By Person`.
 3. **Skip bots** by name pattern: `kopsMI`, `GitOps`, `Microsoft Security`, `Azure User Access Review`, `Incident Automation`, `Workflows`, `(bot)`, `Auto-restart`, `automation`, `service account`. Also skip distribution-list-style entries.
-4. **Resolve alias** for each remaining person: kebab-case the display name (`Vincent-Philippe Lauzon` → `vincent-philippe-lauzon`).
+4. **Resolve alias** for each remaining person: kebab-case the display name (`Your VP` → `your-vp`).
    - If `people/<alias>.md` exists → it's a direct → append `(daily)` line to its `## Daily observations`.
    - Else → it's a contact → create or update `contacts/<alias>.md` (use the contact template above), append to `## Recent interactions`.
 5. **Observation format:**

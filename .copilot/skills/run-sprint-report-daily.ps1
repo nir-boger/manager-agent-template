@@ -22,4 +22,4 @@ if (Test-Path $todayReport) {
 
 $prompt = "Read the skill definition at $AgentRoot\.copilot\skills\sprint-report-daily\SKILL.md and execute it exactly as described. Do not ask me any questions. Write the report and print a one-line summary."
 
-& copilot -p $prompt --allow-all-tools --no-ask-user --model claude-sonnet-4.5 *>&1 | Tee-Object -FilePath $logFile
+Invoke-CopilotAgent -Prompt $prompt -LogFile $logFile | Out-Null

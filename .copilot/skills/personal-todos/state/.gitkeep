@@ -1,0 +1,2 @@
+# Keeps the state/ directory tracked so the runner can drop snapshot files here.
+# Actual snapshot.json + last-sent.txt are gitignored (see .gitignore).

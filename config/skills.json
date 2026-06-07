@@ -1,9 +1,11 @@
 {
-  "_comment": "Single source of truth for the skills index. AGENTS.md is rendered from this manifest. doctor.ps1 verifies every entry's path/entrypoint exists. tools/build-snapshot.ps1 uses ship_in_snapshot to decide what goes in the public template. Surface tier: 'engine' = team-management surface, ships in template default; 'example' = personal-life reference (e.g. Partner, Pilates); 'local-only' = local-install carve-outs (e.g. forwarders) that the public template should NOT carry. show_in_agents controls visibility in the AGENTS.md skills table.",
+  "_comment": "Single source of truth for the skills index. AGENTS.md is rendered from this manifest. doctor.ps1 verifies every entry's path/entrypoint exists. tools/build-snapshot.ps1 uses ship_in_snapshot to decide what goes in the public template. Surface tier: 'engine' = team-management surface, ships in template default; 'example' = personal-life reference (e.g. Partner, Pilates); 'local-only' = local-install carve-outs (e.g. forwarders) that the public template should NOT carry. show_in_agents controls visibility in the AGENTS.md skills table. category groups skills in the rendered AGENTS.md table; valid values: 'sprint-pbis', 'comms', 'codebase-people', 'reviews-dri', 'cadence-memory', 'private-work-tools', 'personal-life', 'hidden' (used only when show_in_agents=false). role is the higher-level role-agent a skill belongs to (the Nirvana Explorer groups skills by role); valid values: 'chief-of-staff', 'sprint-delivery', 'reliability-dri', 'code-knowledge', 'comms-agent', 'personal-life'.",
   "skills": [
     {
       "name": "sprint-create",
       "surface": "engine",
+      "category": "sprint-pbis",
+      "role": "sprint-delivery",
       "path": ".copilot/skills/sprint-create",
       "entrypoint_path": ".copilot/skills/run-sprint-create.ps1",
       "triggers": [
@@ -18,6 +20,8 @@
     {
       "name": "sprint-report-daily",
       "surface": "engine",
+      "category": "sprint-pbis",
+      "role": "sprint-delivery",
       "path": ".copilot/skills/sprint-report-daily",
       "entrypoint_path": ".copilot/skills/run-sprint-report-daily.ps1",
       "triggers": [
@@ -32,6 +36,8 @@
     {
       "name": "pbi-assign-tasks",
       "surface": "engine",
+      "category": "sprint-pbis",
+      "role": "sprint-delivery",
       "path": ".copilot/skills/pbi-assign-tasks",
       "entrypoint_path": ".copilot/skills/run-pbi-assign-tasks.ps1",
       "triggers": [
@@ -45,15 +51,38 @@
       "summary": ""
     },
     {
+      "name": "sprint-digest",
+      "surface": "engine",
+      "category": "sprint-pbis",
+      "role": "sprint-delivery",
+      "path": ".copilot/skills/sprint-digest",
+      "entrypoint_path": ".copilot/skills/run-sprint-digest.ps1",
+      "triggers": [
+        "sprint digest",
+        "send the sprint digest",
+        "send the sprint digest now",
+        "how is the sprint pacing",
+        "are we behind this sprint",
+        "sprint pace",
+        "sprint slippage",
+        "sprint-digest"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Weekly Nir-only schedule-slippage email for the current iteration (Your Team), distinct from sprint-report-daily (a daily markdown file) and semester-plan-report (Feature/PBI leadership dashboard). Pulls the active sprint from ADO, classifies Task+Bug items, and reports pace as working-day elapsed % vs work-done %, in BOTH current scope and baseline scope (IDs snapshotted on the first run of the iteration, so added/removed work is visible). Includes a pace verdict ribbon (On track / Behind / Well behind), a Not-started table, a By-person breakdown, and an item delta since the last digest (completed / added / removed / reopened). Working week is Sun-Thu. Scheduled DM-SprintDigest weekly Sundays 09:00 IST; idempotency keyed on iterationId + Sunday week-start; best-effort ADO via az token with graceful no-sprint / zero-item handling; joke + signature; never modifies ADO."
+    },
+    {
       "name": "email-team",
       "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
       "path": ".copilot/skills/email-team",
       "entrypoint_path": null,
       "triggers": [
         "email the team",
         "send an email",
         "mail the team",
-        "email kdms",
+        "email team",
         "email the daily report"
       ],
       "show_in_agents": true,
@@ -61,8 +90,31 @@
       "summary": ""
     },
     {
+      "name": "email-investigation",
+      "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
+      "path": ".copilot/skills/email-investigation",
+      "entrypoint_path": null,
+      "triggers": [
+        "send investigation email",
+        "email this investigation",
+        "investigation-style email",
+        "send analysis with the fancy UI",
+        "send the investigation we just discussed",
+        "use the investigation style",
+        "RCA email",
+        "post-mortem email"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Investigation/RCA-flavored email composer: dark hero banner, TL;DR card, 4-stat grid, narrative cards with callouts, numbered priority-chipped recommendation cards, joke + signature. Single source of truth for the look: .copilot/skills/_shared/investigation-email.ps1 (reusable from any skill). Sends via Outlook COM (same recipe as email-team)."
+    },
+    {
       "name": "post-to-teams",
       "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
       "path": ".copilot/skills/post-to-teams",
       "entrypoint_path": null,
       "triggers": [
@@ -77,8 +129,66 @@
       "summary": ""
     },
     {
+      "name": "genz-ask",
+      "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
+      "path": ".copilot/skills/genz-ask",
+      "entrypoint_path": null,
+      "triggers": [
+        "send an ask GenZ style",
+        "ask the team GenZ style",
+        "GenZ ask",
+        "GenZ task assignment",
+        "draft a GenZ ask",
+        "genz-ask"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "status": "preview",
+      "status_note": "Voice is still being fine-tuned — `וש`-density / emoji count / opener / joke mass calibrate as Nir reacts to drafts. Treat output as a starting point, expect to nudge.",
+      "summary": "Prank-flavored composer: drafts a Hebrew task assignment in the Your Team WhatsApp register dialed up to 11 (וש-suffix gimmick on nouns like תור→תורוש, plus טובות / ביוש / יש אותך), then routes through email-team / whatsapp / post-to-teams. Voice only — never modifies ADO items, no scheduled fires."
+    },
+    {
+      "name": "plus-nirvana",
+      "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
+      "path": ".copilot/skills/plus-nirvana",
+      "entrypoint_path": ".copilot/skills/run-plus-nirvana.ps1",
+      "triggers": [
+        "process +Nirvana sent items",
+        "scan +Nirvana",
+        "plus-nirvana",
+        "+Nirvana scan",
+        "+Nirvana handoff"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Hand-off pattern: when Nir tags a Sent reply with the literal token `+Nirvana` (in subject or body), Nirvana picks it up from Sent Items, ReplyAll's the original recipients on Nir's behalf with a polite ack (\"Nir and I will pick this up and circle back\"), creates a PT-NNN in personal-todos and references it inline, ends with a joke, and stamps the Sent item with `NirvanaPlusProcessed` for idempotency. Audience guardrail: all recipients must be @microsoft.com. Polled every 5 min by DM-PlusNirvana; also on-demand."
+    },
+    {
+      "name": "pr-review-request",
+      "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
+      "path": ".copilot/skills/pr-review-request",
+      "entrypoint_path": ".copilot/skills/run-pr-review-request.ps1",
+      "triggers": [
+        "ask team to review new PRs",
+        "post review requests",
+        "review request",
+        "pr-review-request"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Whenever a direct report (or Nir himself) opens a NEW pull request, post a 'please review' message to the team's Teams channel via the post-to-teams Outlook -> Power Automate flow. Watches Nir + every direct in directs-context.json (auto-refreshed, so new directs are covered automatically), querying each member's ACTIVE PRs. A baseline timestamp captured on first run means it only fires for PRs created from now onward (no backfill); non-draft only; idempotent via state/posted.json (one Teams post per PR). Teams posts carry no joke/signature per convention. Polled every 5 min by DM-PrReviewRequest; also on-demand with -DryRun/-Force/-ResetBaseline."
+    },
+    {
       "name": "agent-todos",
       "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
       "path": ".copilot/skills/agent-todos",
       "entrypoint_path": ".copilot/skills/run-agent-todos.ps1",
       "triggers": [
@@ -94,29 +204,10 @@
       "summary": ""
     },
     {
-      "name": "codebase",
-      "surface": "engine",
-      "path": ".copilot/skills/codebase",
-      "entrypoint_path": null,
-      "triggers": [
-        "ask kusto",
-        "in the codebase",
-        "where is",
-        "where does ... live",
-        "how does ... work",
-        "review this diff",
-        "review PR",
-        "kusto codebase",
-        "refresh the kusto codebase map",
-        "reindex kusto"
-      ],
-      "show_in_agents": true,
-      "ship_in_snapshot": true,
-      "summary": ""
-    },
-    {
       "name": "team-personas",
       "surface": "engine",
+      "category": "codebase-people",
+      "role": "code-knowledge",
       "path": ".copilot/skills/team-personas",
       "entrypoint_path": null,
       "triggers": [
@@ -131,6 +222,9 @@
         "rebuild personas",
         "refresh personas",
         "reindex personas",
+        "rebuild persona hot cache",
+        "replay persona archive",
+        "rebuild areas ledger collaborators",
         "team-personas"
       ],
       "show_in_agents": true,
@@ -138,8 +232,48 @@
       "summary": ""
     },
     {
+      "name": "pr-review-assistant",
+      "surface": "engine",
+      "category": "reviews-dri",
+      "role": "reliability-dri",
+      "path": ".copilot/skills/pr-review-assistant",
+      "entrypoint_path": ".copilot/skills/run-pr-review-assistant.ps1",
+      "triggers": [
+        "review PR",
+        "draft review for PR",
+        "review my queue",
+        "scan PRs now",
+        "review this PR",
+        "pr-review-assistant"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "status": "preview",
+      "status_note": "First end-to-end automation that auto-posts content into other people's PRs in ADO. Comment voice / signal-to-noise / severity calibration all need real-world tuning. Expect to nudge as Nir sees what lands.",
+      "summary": "Reviews one ADO PR end-to-end: fetches diff, runs code-review sub-agent (Opus 4.8), posts comments at all four severity tiers ([Blocker]/[Concern]/[Suggestion]/[Nit]) directly to ADO, writes per-iteration report, emails Nir a one-pager. On-demand ONLY via 'review PR <id>' — the DM-PrReviewAssistant scheduled scan is disabled, so nothing is reviewed automatically. Idempotency via state/seen.json keyed on (pr-id, iteration-id)."
+    },
+    {
+      "name": "pr-team-stats",
+      "surface": "engine",
+      "category": "reviews-dri",
+      "role": "reliability-dri",
+      "path": ".copilot/skills/pr-team-stats",
+      "entrypoint_path": ".copilot/skills/run-pr-team-stats.ps1",
+      "triggers": [
+        "team PR stats",
+        "PR team report",
+        "create PR report",
+        "PR stats report"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Generates a weekly/day-by-day PR report for your directs + you, including completion time, first-review delay, and reviewer counts. Supports an optional Your Team reviewer filter."
+    },
+    {
       "name": "inbox-watch",
       "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
       "path": ".copilot/skills/inbox-watch",
       "entrypoint_path": ".copilot/skills/run-inbox-watch.ps1",
       "triggers": [
@@ -151,11 +285,15 @@
       ],
       "show_in_agents": true,
       "ship_in_snapshot": true,
+      "status": "preview",
+      "status_note": "Auto-reply behavior is still being fine-tuned — realism filter, answer-vs-defer classification, voice, and when to invoke sub-skills (codebase / team-personas / sprint-report-daily in read-only mode) all calibrate as Nir reacts to outbound replies. Treat sent replies as drafts Nirvana shipped; expect to nudge / correct.",
       "summary": ""
     },
     {
       "name": "team-milestones",
       "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
       "path": ".copilot/skills/team-milestones",
       "entrypoint_path": ".copilot/skills/run-team-milestones-daily.ps1",
       "triggers": [
@@ -171,8 +309,30 @@
       "summary": ""
     },
     {
+      "name": "team-vacation-watch",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/team-vacation-watch",
+      "entrypoint_path": ".copilot/skills/run-team-vacation-watch.ps1",
+      "triggers": [
+        "who is on vacation",
+        "scan the team calendar",
+        "who's on vacation",
+        "vacation watch",
+        "update vacation status",
+        "welcome back notes",
+        "team-vacation-watch"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Daily watcher over the shared team calendar. Reads each member's Outlook free/busy (read-only) to detect vacations, upserts a managed <!-- nirvana:vacation-status --> block in each persona file, and auto-posts a warm 'welcome back' to the Your Team Teams channel via post-to-teams when someone returns - idempotent once per person per return (pending->sent ledger in state/welcomed.json, snapshot in state/vacation-status.json). Only welcomes back when the absence cost >=2 Israel working days (Sun-Thu), so weekend-only or single-working-day (e.g. Thu+Fri+Sat) absences are skipped silently; the post uses a qualitative length phrase (short/long, no raw dates) plus a 'what you missed' brief sourced ONLY from team pull requests (never email/Teams). Israel-local dates, inclusive vacation end (return = end+1), max_late_welcome_days=2, min_working_days_for_welcome=2, conservative first-run (explicit returned_today only). Scheduled task DM-TeamVacationWatch runs daily 08:00 IST + every 10 min for 12h; on-demand with -DryRun/-Force/-AsOfDate."
+    },
+    {
       "name": "whatsapp",
       "surface": "engine",
+      "category": "comms",
+      "role": "comms-agent",
       "path": ".copilot/skills/whatsapp",
       "entrypoint_path": null,
       "triggers": [
@@ -192,6 +352,8 @@
     {
       "name": "pilates",
       "surface": "example",
+      "category": "personal-life",
+      "role": "personal-life",
       "path": "examples/personal/pilates",
       "entrypoint_path": "examples/personal/pilates/pilates.ps1",
       "triggers": [
@@ -206,6 +368,254 @@
       "show_in_agents": true,
       "ship_in_snapshot": true,
       "summary": "auto-books Reformer Pilates via direct Arbox API; per-slot scheduled tasks fire 10s before registration opens, poll-and-book, then email a confirmation."
+    },
+    {
+      "name": "semester-plan-report",
+      "surface": "engine",
+      "category": "reviews-dri",
+      "role": "sprint-delivery",
+      "path": ".copilot/skills/semester-plan-report",
+      "entrypoint_path": ".copilot/skills/run-semester-plan-report.ps1",
+      "triggers": [
+        "run semester plan report",
+        "run semester plan",
+        "semester plan report",
+        "build semester plan dashboard",
+        "semester pulse",
+        "run semester pulse",
+        "preview semester plan",
+        "semester plan dry run",
+        "email semester plan",
+        "send semester plan"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Bi-weekly DM semester-plan dashboard (Apr 1 - Sep 30 window, Feature + PBI level, Semester Pulse intro). Refreshes ADO state every run via WIQL + workitemsbatch, renders Clawpilot-themed single-file HTML, emails VP / A Peer / Your Manager (Nir on CC). Scheduled task DM-SemesterPlanReport runs every Thursday 16:00 IST; runner self-gates to fire only within 3 days of the current iteration finishDate so it lands at sprint close."
+    },
+    {
+      "name": "team-agenda",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/team-agenda",
+      "entrypoint_path": ".copilot/skills/run-team-agenda-reminder.ps1",
+      "triggers": [
+        "add to our agenda",
+        "add to the team agenda",
+        "add to team open discussions",
+        "open an agenda item",
+        "track this for WSR",
+        "track this for next team meeting",
+        "what's on our agenda",
+        "list open agenda items",
+        "show team open discussions",
+        "close agenda item",
+        "remind me about our agendas",
+        "weekly agenda reminder",
+        "send the team agenda reminder now",
+        "preview the team meeting reminder",
+        "test team meeting reminder",
+        "team-agenda"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Team Open Discussions agenda tracker. Persists open items at reports/team-agenda/open-discussions.md (markdown, TA-NNN IDs). Two weekly reminders: DM-TeamAgendaReminder Mondays 08:00 IST emails Nir the open list; DM-TeamMeetingReminder Tuesdays 14:00 IST (30 min before the recurring 'Team Meeting' at 14:30) emails the team (team@) the open list, runtime-confirming the meeting exists in Outlook before sending. Supports add/list/close/remind modes."
+    },
+    {
+      "name": "risk-watch",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "sprint-delivery",
+      "path": ".copilot/skills/risk-watch",
+      "entrypoint_path": ".copilot/skills/run-risk-watch-pulse.ps1",
+      "triggers": [
+        "add a risk",
+        "track a risk",
+        "log a risk",
+        "raise a risk",
+        "this is at risk",
+        "what are our risks",
+        "list risks",
+        "show the risk register",
+        "open risks",
+        "close RK-",
+        "send the risk pulse now",
+        "risk-watch"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Living delivery-risk register (RK-NNN) at reports/risks/register.md, distinct from team-agenda (discussion) and personal-todos (actions). Each risk carries a RAG level (Risk: Red/Amber/Green) separate from its Open/Closed lifecycle, plus Owner, Area, Why-at-risk, Mitigation, Next-checkpoint, and Linked-ADO. Weekly pulse DM-RiskWatchPulse (Sundays 08:45 IST) emails Nir the open Red + Amber risks with overdue checkpoints flagged and sorted first; Green omitted with a count; always sends (even all-green). Add via the mandatory add-item.py helper. ISO-week idempotency; joke + signature; never modifies ADO."
+    },
+    {
+      "name": "one-on-one-agenda",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/one-on-one-agenda",
+      "entrypoint_path": ".copilot/skills/run-one-on-one-agenda.ps1",
+      "triggers": [
+        "add to my 1:1",
+        "add to my next 1:1",
+        "for my 1:1 with",
+        "for next 1:1 with",
+        "track for my next 1:1",
+        "raise with",
+        "save for my 1:1",
+        "what's on my 1:1",
+        "list my 1:1 agenda",
+        "show my 1:1 agenda",
+        "close ON-",
+        "one-on-one-agenda",
+        "1:1 agenda"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Per-person 1:1 talking-point tracker (ON-NNN). One markdown file per partner at reports/one-on-ones/<slug>.md (e.g. Your Manager.md, vp.md). Same item shape as team-agenda (Discussion / Follow-up). Built-in scheduled task DM-OneOnOneAgenda polls every 5 min and fires one email to Nir 30 min before any 1:1 whose subject matches a known person with open ON-NNN items — auto-extends to new partners as new files are added. Add items via the mandatory add-item.py helper."
+    },
+    {
+      "name": "reminders",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/reminders",
+      "entrypoint_path": ".copilot/skills/run-reminders.ps1",
+      "triggers": [
+        "remind me before",
+        "remind me at",
+        "remind me on",
+        "remind me about",
+        "set a reminder",
+        "add a reminder",
+        "list reminders",
+        "show reminders",
+        "show pending reminders",
+        "what reminders do I have",
+        "cancel RM-",
+        "drop RM-",
+        "kill RM-",
+        "fire reminders now",
+        "tick reminders",
+        "reminders"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Nirvana-as-personal-assistant reminder service. Two kinds: meeting-bound (fires N min before/after a meeting whose subject matches a substring) or absolute (fires at a fixed ISO time). Source of truth at reports/reminders/reminders.md (RM-NNN). Single polling scheduled task DM-Reminders runs every 5 min 24/7, re-resolves meeting times each tick so reminders follow if a meeting moves."
+    },
+    {
+      "name": "nirvana-site",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/nirvana-site",
+      "entrypoint_path": ".copilot/skills/run-nirvana-site.ps1",
+      "triggers": [
+        "build the nirvana site",
+        "rebuild nirvana explorer",
+        "regen the site",
+        "open the nirvana site",
+        "show me the nirvana explorer",
+        "nirvana-site"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Self-contained Nirvana Explorer single-file HTML (reports/site/nirvana.html) for browsing every skill, persona, workspace artifact, scheduled task, and convention in one place. Clawpilot-themed, light/dark toggle, sidebar search, per-skill Run panel (parameters parsed from the entrypoint .ps1, recent runs from reports/<skill>/ + matching reports/logs/) with inline file preview. Rebuilt nightly by DM-NirvanaSiteBuild (06:00 IST)."
+    },
+    {
+      "name": "personal-todos",
+      "surface": "engine",
+      "category": "private-work-tools",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/personal-todos",
+      "entrypoint_path": ".copilot/skills/run-personal-todos-daily.ps1",
+      "triggers": [
+        "add to my todo",
+        "add a todo",
+        "add to my todos",
+        "remind me to",
+        "PT add",
+        "what's on my list",
+        "what's on my todo list",
+        "show my todos",
+        "PT list",
+        "list my todos",
+        "snooze PT-",
+        "drop PT-",
+        "kill PT-",
+        "complete PT-",
+        "PT- done",
+        "I did PT-",
+        "suggest todos",
+        "what am I forgetting",
+        "send my daily todo email now",
+        "remind me of my todos now",
+        "personal-todos"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Nir's private todo list (PT-NNN). Despite the 'personal-' name prefix, this is a WORK tool — the list holds both work and personal-life categories. Conversational add via chat, persistent markdown at reports/personal-todos/todos.md. Daily 07:00 IST HTML reminder DM-PersonalTodosDaily with 3-5 auto-suggestions from inbox-watch / 1:1 prep / PR queue / milestones. Light gamification: weekly count only."
+    },
+    {
+      "name": "daily-capture",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/daily-capture",
+      "entrypoint_path": ".copilot/skills/run-daily-capture.ps1",
+      "triggers": [],
+      "show_in_agents": false,
+      "ship_in_snapshot": true,
+      "summary": "Once-a-day (18:00 IST) replacement for Cowork's OneDrive feed. Produces the daily activity summary (DailySummary_<date>.md for Nirvana/DailySummary, ingested by DM-DailySummaryImport) and the per-direct-report 24h capture (one .md per report under Nirvana/Personas/<date>). Reads via WorkIQ (summarizes; personas bodies are paraphrased, not verbatim) inside copilot subprocesses; the runner owns preflight, staging, validation, atomic publish to OneDrive, per-phase/per-person state, and the single signed summary email. Scheduled by DM-DailyCapture (execution_time_limit PT45M)."
+    },
+    {
+      "name": "team-brief",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/team-brief",
+      "entrypoint_path": ".copilot/skills/run-team-brief.ps1",
+      "triggers": [
+        "team brief",
+        "what did my team do",
+        "what did the team do today",
+        "send the team brief",
+        "send the team brief now",
+        "weekly highlights",
+        "send the weekly highlights",
+        "team-brief"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Two fancy Nir-only digest emails about what the direct-report team did, rendered with the investigation-email look (dark hero / TL;DR / stat-grid / per-person cards). DAILY mode summarizes one day's activity (scheduled DM-TeamBriefDaily 18:30 IST, after the 18:00 DM-DailyCapture lands); WEEKLY mode rolls up the Sun-Thu work week (scheduled DM-TeamWeeklyHighlights Thursday 17:00 IST). Data comes from reports/directs-scope/directs-context.json (recent PRs as author/reviewer, active work items, wins) plus the per-person '## Daily observations' lines in team-personas/people/*.md. Run via 'run-team-brief.ps1 -Mode daily|weekly [-Date] [-Force] [-DryRun] [-NoEmail]'. IST DateTimeOffset windows (DST-correct); PRs filtered honestly by created-in-window since there is no completed timestamp; all data HTML-encoded; idempotent JSON state (state/daily-sent.json, state/weekly-sent.json) advanced only on a successful send so missed days backfill on resume (Cloud PC weekend suspends); joke + signature; reads only, never modifies ADO or OneDrive."
+    },
+    {
+      "name": "personal-todos-import",
+      "surface": "engine",
+      "category": "private-work-tools",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/personal-todos-import",
+      "entrypoint_path": ".copilot/skills/run-personal-todos-import.ps1",
+      "triggers": [],
+      "show_in_agents": false,
+      "ship_in_snapshot": true,
+      "summary": "Auto-imports Outlook tasks from the '🔎 Nirvana TODO' list into personal-todos (PT-NNN), then marks the Outlook task complete with [PT-NNN] prefixed in the subject. Polled by scheduled task DM-PersonalTodosImport every 5 min, 24/7. Set-and-forget bridge — no chat triggers."
+    },
+    {
+      "name": "logs-cleanup",
+      "surface": "engine",
+      "category": "cadence-memory",
+      "role": "chief-of-staff",
+      "path": ".copilot/skills/logs-cleanup",
+      "entrypoint_path": ".copilot/skills/run-logs-cleanup.ps1",
+      "triggers": [
+        "cleanup logs",
+        "clean up the logs folder",
+        "prune logs",
+        "logs cleanup",
+        "logs-cleanup"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Generic, flow-agnostic pruner for the runtime-only (gitignored) reports/logs folder so it doesn't grow unbounded. Deletes *.log files older than the retention window (config logs.retention_days, default 14) but always keeps the newest N per flow prefix (logs.keep_min_per_prefix, default 5); also age-prunes non-.log scratch debris (temp-*.py, stray *.json/*.ps1) when -IncludeScratch (default on). A grace window (logs.grace_hours, default 6) never touches actively-appending logs; refuses to run unless $LogDir resolves exactly to <agent-root>/reports/logs. Covers every current AND future skill automatically. Scheduled task DM-LogsCleanup runs daily 05:30 IST; on-demand with -DryRun."
     }
   ]
 }

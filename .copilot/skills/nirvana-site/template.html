@@ -1,0 +1,1509 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nirvana Explorer</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const stored = localStorage.getItem("nirvana-theme");
+      const theme =
+        param || stored ||
+        (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      line-height: 1.55;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+    }
+    code, pre, .mono {
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 0.9em;
+    }
+    a { color: var(--cp-link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Topbar */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.5rem 1rem;
+      background: var(--cp-bg-elevated);
+      border-bottom: 1px solid var(--cp-border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 0.75rem; min-width: 0;
+    }
+    .brand pre {
+      margin: 0;
+      font-size: 9px;
+      line-height: 1.05;
+      color: var(--cp-accent);
+      white-space: pre;
+    }
+    .brand .title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .brand .subtitle {
+      color: var(--cp-text-muted);
+      font-size: 0.85rem;
+    }
+    .topbar .spacer { flex: 1; }
+    .search {
+      flex: 0 1 380px;
+      position: relative;
+    }
+    .search input {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.625rem;
+      border: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .search input:focus {
+      border-color: var(--cp-accent);
+      box-shadow: 0 0 0 3px var(--cp-accent-soft);
+    }
+    .topbar button.icon {
+      background: transparent;
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      padding: 0.4rem 0.7rem;
+      cursor: pointer;
+      color: var(--cp-text);
+      font-family: inherit;
+      font-size: 0.85rem;
+    }
+    .topbar button.icon:hover {
+      background: var(--cp-surface-soft);
+      border-color: var(--cp-border-strong);
+    }
+
+    /* Layout */
+    .layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      min-height: calc(100vh - 56px);
+    }
+    .sidebar {
+      background: var(--cp-bg-elevated);
+      border-right: 1px solid var(--cp-border);
+      padding: 1rem 0.75rem;
+      overflow-y: auto;
+      max-height: calc(100vh - 56px);
+      position: sticky;
+      top: 56px;
+    }
+    .nav-section {
+      margin-bottom: 1rem;
+    }
+    .nav-section h4 {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--cp-text-muted);
+      margin: 0.5rem 0.5rem 0.25rem;
+    }
+    .nav-section ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.5rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      color: var(--cp-text);
+      font-size: 0.88rem;
+    }
+    .nav-item:hover {
+      background: var(--cp-surface-soft);
+    }
+    .nav-item.active {
+      background: var(--cp-accent-soft);
+      color: var(--cp-accent);
+      font-weight: 600;
+    }
+    .nav-item .count {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: var(--cp-text-soft);
+    }
+    .nav-item.hidden { display: none; }
+    .nav-subsection {
+      margin: 0.5rem 0 0.25rem;
+      padding: 0 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--cp-text-soft);
+    }
+    .nav-subsection.hidden { display: none; }
+
+    /* Main */
+    .main {
+      padding: 1.5rem 2rem 4rem;
+      max-width: 980px;
+      overflow-x: hidden;
+    }
+    .crumbs {
+      color: var(--cp-text-muted);
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+    }
+    .crumbs .chip {
+      background: var(--cp-surface-soft);
+      padding: 0.1rem 0.5rem;
+      border-radius: 0.5rem;
+      color: var(--cp-text);
+    }
+    h1.title-h1 { margin: 0 0 0.25rem; font-size: 1.8rem; }
+    .subtitle-row { color: var(--cp-text-muted); margin-bottom: 1rem; font-size: 0.95rem; }
+
+    /* Cards */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      padding: 1rem;
+      box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+      cursor: pointer;
+      transition: transform 0.08s ease, border-color 0.08s ease;
+    }
+    .card:hover {
+      border-color: var(--cp-accent);
+      transform: translateY(-1px);
+    }
+    .card .label {
+      color: var(--cp-text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--cp-text);
+    }
+    .card.skill-card .name {
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .card.skill-card .summary {
+      color: var(--cp-text-muted);
+      font-size: 0.85rem;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Home hero */
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1.25rem;
+      padding: 1.75rem 1.5rem 1.5rem;
+      margin: 0 0 1.75rem;
+      background:
+        radial-gradient(circle at 0% 0%, var(--cp-accent-soft), transparent 60%),
+        var(--cp-bg-elevated);
+      border: 1px solid var(--cp-border);
+      border-radius: 20px;
+      box-shadow: var(--cp-shadow);
+    }
+    .hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .hero-ascii {
+      margin: 0;
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 13px;
+      line-height: 1.05;
+      color: var(--cp-accent);
+      white-space: pre;
+      flex: 0 0 auto;
+    }
+    .hero-intro h1 {
+      margin: 0 0 0.25rem;
+      font-size: 2rem;
+      letter-spacing: -0.01em;
+    }
+    .hero-intro .tagline {
+      color: var(--cp-text-muted);
+      font-size: 1rem;
+      margin: 0 0 0.5rem;
+    }
+    .hero-intro p.lede {
+      margin: 0;
+      max-width: 60ch;
+      color: var(--cp-text);
+      font-size: 0.98rem;
+      line-height: 1.6;
+    }
+    .hero-intro p.lede + p.lede { margin-top: 0.5rem; }
+    .hero-name-h2 {
+      margin: 0.25rem 0 0.5rem;
+      font-size: 1.05rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--cp-text);
+    }
+    .hero-name-h2 .quiet {
+      color: var(--cp-text-muted);
+      font-weight: 400;
+      margin-left: 0.5rem;
+      font-size: 0.92rem;
+    }
+    .meaning-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+    .meaning-card {
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 14px;
+      padding: 0.9rem 1rem;
+    }
+    .meaning-card .label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--cp-text-soft);
+      margin-bottom: 0.35rem;
+    }
+    .meaning-card .word {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+      color: var(--cp-text);
+    }
+    .meaning-card .word .ipa {
+      color: var(--cp-accent);
+      font-weight: 500;
+      font-size: 0.9rem;
+      margin-left: 0.25rem;
+    }
+    .meaning-card .body {
+      color: var(--cp-text-muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .hero-footnote {
+      margin-top: 0.25rem;
+      color: var(--cp-text-soft);
+      font-size: 0.82rem;
+      font-style: italic;
+    }
+    @media (max-width: 760px) {
+      .hero { padding: 1.25rem 1rem; }
+      .hero-ascii { font-size: 10px; }
+      .hero-intro h1 { font-size: 1.5rem; }
+    }
+
+    /* Skill detail */
+    .meta-row {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      background: var(--cp-surface-soft);
+      border: 1px solid var(--cp-border);
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      color: var(--cp-text-muted);
+    }
+    .badge.accent {
+      background: var(--cp-accent-soft);
+      border-color: transparent;
+      color: var(--cp-accent);
+      font-weight: 600;
+    }
+    .badge.preview {
+      background: rgba(245, 158, 11, 0.16);
+      border-color: transparent;
+      color: var(--cp-warning);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 0.68rem;
+    }
+    .nav-item .nav-status {
+      margin-left: auto;
+      padding: 0.05rem 0.4rem;
+      border-radius: 999px;
+      font-size: 0.62rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+      background: rgba(245, 158, 11, 0.16);
+      color: var(--cp-warning);
+    }
+    .preview-banner {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      background: rgba(245, 158, 11, 0.10);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      border-left: 4px solid var(--cp-warning);
+      border-radius: 0.625rem;
+      padding: 0.75rem 1rem;
+      margin: 1rem 0 1.25rem;
+      color: var(--cp-text);
+    }
+    .preview-banner .preview-icon {
+      font-size: 1.2rem;
+      line-height: 1;
+      margin-top: 0.1rem;
+    }
+    .preview-banner .preview-body {
+      flex: 1;
+    }
+    .preview-banner .preview-title {
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      color: var(--cp-warning);
+      margin-bottom: 0.2rem;
+    }
+    .preview-banner .preview-text {
+      font-size: 0.88rem;
+      color: var(--cp-text);
+    }
+    .triggers {
+      display: flex; flex-wrap: wrap; gap: 0.4rem;
+      margin: 0.25rem 0 1rem;
+    }
+    .trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 999px;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+      color: var(--cp-text);
+      font-family: inherit;
+    }
+    .trigger:hover {
+      border-color: var(--cp-accent);
+      color: var(--cp-accent);
+    }
+    .trigger .copy-ico {
+      opacity: 0.55;
+      font-size: 0.7rem;
+    }
+    .trigger.copied {
+      background: var(--cp-accent-soft);
+      color: var(--cp-accent);
+      border-color: transparent;
+    }
+
+    /* Rendered markdown content */
+    .md {
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+    }
+    .md h1, .md h2, .md h3, .md h4 {
+      margin-top: 1.5em;
+      margin-bottom: 0.5em;
+      line-height: 1.25;
+    }
+    .md h1 { font-size: 1.5rem; }
+    .md h2 { font-size: 1.2rem; border-bottom: 1px solid var(--cp-border); padding-bottom: 0.25rem;}
+    .md h3 { font-size: 1.05rem; }
+    .md h4 { font-size: 0.95rem; }
+    .md p { margin: 0.5em 0; }
+    .md ul, .md ol { padding-left: 1.5em; }
+    .md li { margin: 0.15em 0; }
+    .md code {
+      background: var(--cp-surface-soft);
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.35rem;
+      border: 1px solid var(--cp-border);
+    }
+    .md pre {
+      background: var(--cp-surface-soft);
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+    }
+    .md pre code {
+      background: transparent;
+      border: none;
+      padding: 0;
+    }
+    .md table {
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      width: 100%;
+      font-size: 0.9rem;
+    }
+    .md th, .md td {
+      border: 1px solid var(--cp-border);
+      padding: 0.4rem 0.6rem;
+      vertical-align: top;
+      text-align: left;
+    }
+    .md th {
+      background: var(--cp-surface-soft);
+      font-weight: 600;
+    }
+    .md blockquote {
+      border-left: 3px solid var(--cp-accent);
+      margin: 0.75rem 0;
+      padding: 0.1rem 0.75rem;
+      color: var(--cp-text-muted);
+      background: var(--cp-accent-soft);
+      border-radius: 0 0.5rem 0.5rem 0;
+    }
+    .md hr {
+      border: none;
+      border-top: 1px solid var(--cp-border);
+      margin: 1.5rem 0;
+    }
+
+    /* Slide-over file preview */
+    .preview-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.32);
+      z-index: 20;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .preview-backdrop.open { opacity: 1; pointer-events: auto; }
+    aside.preview {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(720px, 70vw);
+      height: 100vh;
+      background: var(--cp-bg-elevated);
+      border-left: 1px solid var(--cp-border);
+      box-shadow: var(--cp-shadow);
+      z-index: 21;
+      transform: translateX(100%);
+      transition: transform 0.18s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    aside.preview.open { transform: translateX(0); }
+    aside.preview header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+    }
+    aside.preview header .path {
+      flex: 1;
+      font-size: 0.85rem;
+      word-break: break-all;
+    }
+    aside.preview header button {
+      background: transparent;
+      border: 1px solid var(--cp-border);
+      color: var(--cp-text);
+      padding: 0.3rem 0.6rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.8rem;
+    }
+    aside.preview header button:hover {
+      background: var(--cp-surface-soft);
+      border-color: var(--cp-accent);
+    }
+    aside.preview .meta {
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--cp-border);
+      font-size: 0.8rem;
+      color: var(--cp-text-muted);
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    aside.preview .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 1.25rem;
+    }
+    aside.preview .content pre {
+      background: var(--cp-surface-soft);
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      padding: 0.75rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      margin: 0;
+    }
+    aside.preview .truncated-note {
+      background: var(--cp-accent-soft);
+      color: var(--cp-accent);
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      margin-bottom: 0.75rem;
+      border: 1px solid var(--cp-accent);
+    }
+
+    /* Clickable recent-run row */
+    tr.recent-row { cursor: pointer; }
+    tr.recent-row:hover td { background: var(--cp-accent-soft); }
+
+    /* Activity feed rows */
+    tr.activity-row { cursor: pointer; }
+    tr.activity-row:hover td { background: var(--cp-accent-soft); }
+
+    /* Run-this-skill panel */
+    details.run-panel {
+      background: var(--cp-bg-elevated);
+      border: 1px solid var(--cp-accent);
+      border-radius: 16px;
+      padding: 0.75rem 1.25rem;
+      margin: 0.75rem 0 1.25rem;
+      box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+    }
+    details.run-panel summary {
+      cursor: pointer;
+      font-size: 0.95rem;
+      color: var(--cp-text);
+      list-style: none;
+      padding: 0.25rem 0;
+    }
+    details.run-panel summary::-webkit-details-marker { display: none; }
+    details.run-panel summary::before {
+      content: "▸ ";
+      color: var(--cp-accent);
+      display: inline-block;
+      transition: transform 0.15s ease;
+    }
+    details.run-panel[open] summary::before { content: "▾ "; }
+    details.run-panel .cmdline {
+      background: var(--cp-surface);
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      padding: 0.5rem 0.75rem;
+      margin-top: 0.4rem;
+      font-size: 0.85rem;
+      color: var(--cp-text);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    details.run-panel h4 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--cp-text-muted);
+      margin-bottom: 0.2rem;
+    }
+    details.run-panel table.md {
+      margin: 0;
+    }
+
+    /* Tasks table */
+    .tasks-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      background: var(--cp-surface);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+    }
+    .tasks-table th, .tasks-table td {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--cp-border);
+      text-align: left;
+      vertical-align: top;
+    }
+    .tasks-table th {
+      background: var(--cp-surface-soft);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+    }
+    .tasks-table tr:last-child td { border-bottom: none; }
+    .pill {
+      display: inline-block;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .pill.ready { background: rgba(22,163,74,0.12); color: var(--cp-success); }
+    .pill.disabled { background: rgba(220,38,38,0.12); color: var(--cp-danger); }
+    .pill.running { background: rgba(245,158,11,0.18); color: var(--cp-warning); }
+
+    /* Empty state */
+    .empty {
+      padding: 2rem;
+      text-align: center;
+      color: var(--cp-text-muted);
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 3rem;
+      padding: 1rem 0;
+      border-top: 1px solid var(--cp-border);
+      color: var(--cp-text-soft);
+      font-size: 0.8rem;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        max-height: none;
+        border-right: none;
+        border-bottom: 1px solid var(--cp-border);
+      }
+      .brand pre { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+<pre>    _   _ _
+ | \ | (_)_ ____   ____ _ _ __   __ _
+ |  \| | | '__\ \ / / _` | '_ \ / _` |
+ | |\  | | |   \ V / (_| | | | | (_| |
+ |_| \_|_|_|    \_/ \__,_|_| |_|\__,_|</pre>
+      <div>
+        <div class="title">Nirvana Explorer</div>
+        <div class="subtitle">Your Team — All</div>
+      </div>
+    </div>
+    <span class="spacer"></span>
+    <div class="search">
+      <input id="search" type="search" placeholder="Search skills, people, tasks…" autocomplete="off" />
+    </div>
+    <button class="icon" id="theme-toggle" title="Toggle theme">🌓</button>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar"></nav>
+    <main class="main" id="main"></main>
+  </div>
+
+  <div class="preview-backdrop" id="preview-backdrop"></div>
+  <aside class="preview" id="preview" aria-hidden="true">
+    <header>
+      <span class="path mono" id="preview-path"></span>
+      <button id="preview-copy">copy path</button>
+      <button id="preview-close" title="Close (Esc)">✕</button>
+    </header>
+    <div class="meta" id="preview-meta"></div>
+    <div class="content" id="preview-content"></div>
+  </aside>
+
+  <script id="nirvana-data" type="application/json">/*__NIRVANA_DATA__*/</script>
+  <script>
+    "use strict";
+    const DATA = JSON.parse(document.getElementById("nirvana-data").textContent);
+
+    // ---------- File preview lookup ----------
+    const FILE_INDEX = new Map();
+    for (const s of DATA.skills) {
+      for (const f of (s.recent_files || [])) FILE_INDEX.set(f.path, f);
+      for (const f of (s.recent_logs || [])) FILE_INDEX.set(f.path, f);
+    }
+
+    function openPreview(filePath) {
+      const f = FILE_INDEX.get(filePath);
+      const previewEl = document.getElementById("preview");
+      const backdrop = document.getElementById("preview-backdrop");
+      document.getElementById("preview-path").textContent = filePath;
+      const meta = document.getElementById("preview-meta");
+      const content = document.getElementById("preview-content");
+      if (!f) {
+        meta.innerHTML = "";
+        content.innerHTML = `<div class="empty">File not indexed.</div>`;
+      } else {
+        meta.innerHTML = `
+          <span>${escapeHtml(new Date(f.mtime).toLocaleString())}</span>
+          <span>${formatSize(f.size)}</span>
+          <span>${escapeHtml(f.preview_kind || "")}</span>
+          ${f.preview_truncated ? `<span style="color:var(--cp-accent); font-weight:600;">truncated</span>` : ""}
+        `;
+        const tn = f.preview_truncated ? `<div class="truncated-note">Showing first ${(60).toFixed(0)} KB of ${formatSize(f.size)}. Open the file on disk for the rest.</div>` : "";
+        if (f.preview_kind === "markdown" && f.preview_html) {
+          content.innerHTML = tn + `<div class="md">${f.preview_html}</div>`;
+        } else if (f.preview_kind === "text") {
+          content.innerHTML = tn + `<pre class="mono">${escapeHtml(f.preview_text || "")}</pre>`;
+        } else if (f.preview_kind === "binary") {
+          content.innerHTML = `<div class="empty">Binary or unknown file type. Open on disk to view.</div>`;
+        } else if (f.preview_kind === "skip") {
+          content.innerHTML = `<div class="empty">HTML file — open externally to render.</div>`;
+        } else if (f.preview_kind === "error") {
+          content.innerHTML = `<div class="empty">${escapeHtml(f.preview_text || "Could not read file.")}</div>`;
+        } else {
+          content.innerHTML = `<div class="empty">No preview available.</div>`;
+        }
+      }
+      previewEl.classList.add("open");
+      previewEl.setAttribute("aria-hidden", "false");
+      backdrop.classList.add("open");
+    }
+    function closePreview() {
+      document.getElementById("preview").classList.remove("open");
+      document.getElementById("preview").setAttribute("aria-hidden", "true");
+      document.getElementById("preview-backdrop").classList.remove("open");
+    }
+    document.getElementById("preview-close").addEventListener("click", closePreview);
+    document.getElementById("preview-backdrop").addEventListener("click", closePreview);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePreview(); });
+    document.getElementById("preview-copy").addEventListener("click", async () => {
+      const p = document.getElementById("preview-path").textContent;
+      try { await navigator.clipboard.writeText(p); } catch (e) {}
+      const btn = document.getElementById("preview-copy");
+      const orig = btn.textContent;
+      btn.textContent = "✓ copied";
+      setTimeout(() => { btn.textContent = orig; }, 1200);
+    });
+
+    // ---------- Theme toggle ----------
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme") || "light";
+      const next = cur === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("nirvana-theme", next); } catch (e) {}
+    });
+
+    // ---------- Build search index ----------
+    function buildIndex() {
+      const items = [];
+      items.push({ route: "home", title: "Overview", section: "Home", keywords: "home overview start" });
+      items.push({ route: "about/nirvana", title: "Nirvana persona", section: "About", keywords: "nirvana persona origin" });
+      for (const [slug, c] of Object.entries(DATA.conventions || {})) {
+        items.push({ route: "conventions/" + slug, title: c.label, section: "Conventions", keywords: c.label });
+      }
+      for (const s of DATA.skills) {
+        items.push({
+          route: "skills/" + s.slug,
+          title: s.name,
+          section: "Skills",
+          category: s.category,
+          role: s.role,
+          keywords: (s.triggers || []).join(" ") + " " + s.summary,
+        });
+      }
+      for (const p of DATA.personas) {
+        items.push({
+          route: "people/" + p.slug,
+          title: p.name,
+          section: "People",
+          keywords: p.slug,
+        });
+      }
+      for (const [slug, w] of Object.entries(DATA.workspace || {})) {
+        if (slug === "one-on-ones") continue;
+        items.push({ route: "workspace/" + slug, title: w.label, section: "Workspace", keywords: w.path });
+      }
+      for (const o of (DATA.workspace["one-on-ones"] || [])) {
+        items.push({ route: "one-on-ones/" + o.slug, title: o.label, section: "1:1 agendas", keywords: o.path });
+      }
+      items.push({ route: "operations/scheduled", title: "Scheduled tasks", section: "Operations", keywords: "scheduled tasks DM- cron" });
+      return items;
+    }
+    const INDEX = buildIndex();
+
+    // ---------- Sidebar ----------
+    function categoryLabel(catId) {
+      const found = (DATA.category_order || []).find(c => c[0] === catId);
+      return found ? found[1] : catId;
+    }
+
+    function roleLabel(roleId) {
+      const found = (DATA.role_order || []).find(r => r[0] === roleId);
+      return found ? found[1] : roleId;
+    }
+
+    function roleBlurb(roleId) {
+      const found = (DATA.role_order || []).find(r => r[0] === roleId);
+      return found && found[2] ? found[2] : "";
+    }
+
+    function renderSidebar(filter) {
+      const f = (filter || "").trim().toLowerCase();
+      const skillsByRole = new Map();
+      for (const s of DATA.skills) {
+        if (!skillsByRole.has(s.role)) skillsByRole.set(s.role, []);
+        skillsByRole.get(s.role).push(s);
+      }
+      const order = (DATA.role_order || []).map(r => r[0]);
+      for (const role of skillsByRole.keys()) if (!order.includes(role)) order.push(role);
+
+      const sections = [];
+
+      sections.push({ title: "", items: [
+        { route: "home", label: "🏠 Overview" },
+        { route: "about/nirvana", label: "🪷 About Nirvana" },
+      ]});
+
+      // Conventions
+      const convItems = Object.entries(DATA.conventions || {}).map(([slug, c]) =>
+        ({ route: "conventions/" + slug, label: c.label })
+      );
+      sections.push({ title: "Conventions", items: convItems });
+
+      // Skills, grouped by role-agent
+      const skillsItems = [];
+      for (const role of order) {
+        const list = skillsByRole.get(role) || [];
+        if (!list.length) continue;
+        skillsItems.push({ subsection: roleLabel(role) });
+        for (const s of list) {
+          skillsItems.push({ route: "skills/" + s.slug, label: s.name, hint: s.surface, status: s.status });
+        }
+      }
+      sections.push({ title: "Agents · Skills (" + DATA.skills.length + ")", items: skillsItems });
+
+      // Workspace
+      const wsItems = [];
+      for (const [slug, w] of Object.entries(DATA.workspace || {})) {
+        if (slug === "one-on-ones") continue;
+        wsItems.push({ route: "workspace/" + slug, label: w.label });
+      }
+      const ones = (DATA.workspace["one-on-ones"] || []);
+      if (ones.length) {
+        wsItems.push({ subsection: "1:1 agendas" });
+        for (const o of ones) wsItems.push({ route: "one-on-ones/" + o.slug, label: o.label });
+      }
+      sections.push({ title: "Workspace", items: wsItems });
+
+      // People (directs + Nirvana). Nirvana sorts alphabetically with the rest.
+      const people = [...DATA.personas].sort((a, b) => a.name.localeCompare(b.name));
+      sections.push({
+        title: "People (" + people.length + ")",
+        items: people.map(p => ({
+          route: "people/" + p.slug,
+          label: p.name,
+          hint: p.is_nirvana ? "agent" : "",
+        })),
+      });
+
+      // Operations
+      sections.push({
+        title: "Operations",
+        items: [{ route: "operations/scheduled", label: "Scheduled tasks (" + DATA.scheduled_tasks.length + ")" }],
+      });
+
+      const cur = (location.hash || "#home").slice(1);
+
+      const html = sections.map(sec => {
+        const inner = sec.items.map(it => {
+          if (it.subsection) {
+            return `<div class="nav-subsection" data-search="${escapeAttr(it.subsection.toLowerCase())}">${escapeHtml(it.subsection)}</div>`;
+          }
+          const matches = !f || it.label.toLowerCase().includes(f) || (it.hint || "").toLowerCase().includes(f) || it.route.toLowerCase().includes(f) || (it.status || "").toLowerCase().includes(f);
+          const hidden = f && !matches;
+          const isActive = cur === it.route;
+          const statusChip = it.status === "preview"
+            ? `<span class="nav-status" title="Work in progress — voice still calibrating">preview</span>`
+            : "";
+          return `<li class="nav-item ${isActive ? "active" : ""} ${hidden ? "hidden" : ""}" data-route="${escapeAttr(it.route)}" data-search="${escapeAttr(it.label.toLowerCase())}">
+            <span>${escapeHtml(it.label)}</span>
+            ${statusChip}
+          </li>`;
+        }).join("");
+        return `<div class="nav-section">
+          ${sec.title ? `<h4>${escapeHtml(sec.title)}</h4>` : ""}
+          <ul>${inner}</ul>
+        </div>`;
+      }).join("");
+
+      const side = document.getElementById("sidebar");
+      side.innerHTML = html;
+      side.querySelectorAll(".nav-item").forEach(el => {
+        el.addEventListener("click", () => {
+          location.hash = "#" + el.getAttribute("data-route");
+        });
+      });
+    }
+
+    // ---------- Main panel ----------
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    function renderHome() {
+      const stats = DATA.stats;
+      const activity = DATA.activity || [];
+      const activityHtml = activity.length ? `
+        <h2 style="margin-top:1.5rem">What changed in the last 7 days</h2>
+        <table class="md tasks-table" style="margin-bottom:1.5rem;">
+          <thead><tr><th>Modified</th><th>Bucket</th><th>File</th></tr></thead>
+          <tbody>
+            ${activity.map(a => `<tr class="activity-row" data-route="${escapeAttr(a.route || "")}" data-path="${escapeAttr(a.path)}">
+              <td style="white-space:nowrap;">${escapeHtml(relativeTime(a.mtime_epoch))}</td>
+              <td><span class="badge ${a.bucket === 'Skill' ? 'accent' : ''}">${escapeHtml(a.bucket)}</span></td>
+              <td><span class="mono" style="font-size:0.82rem;">${escapeHtml(a.path)}</span></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      ` : "";
+      const hero = `
+        <section class="hero">
+          <div class="hero-top">
+<pre class="hero-ascii">    _   _ _                             
+ | \\ | (_)_ ____   ____ _ _ __   __ _ 
+ |  \\| | | '__\\ \\ / / _\` | '_ \\ / _\` |
+ | |\\  | | |   \\ V / (_| | | | | (_| |
+ |_| \\_|_|_|    \\_/ \\__,_|_| |_|\\__,_|
+
+      .--""""--.
+     /  X    X  \\
+    |     __     |
+     \\   \\__/   /
+      '--....--'</pre>
+            <div class="hero-intro">
+              <h1>Hi. I'm Nirvana — Nir's agent.</h1>
+              <p class="tagline">An AI assistant living on Nir's laptop, drafting on his behalf.</p>
+            </div>
+          </div>
+        </section>
+      `;
+      return `
+        ${hero}
+        <div class="subtitle-row">Site built ${escapeHtml(stats.built_at)} · ${escapeHtml(stats.repo_root)}</div>
+        <div class="cards">
+          <div class="card" data-route="home">
+            <div class="label">Agents</div>
+            <div class="value">${(DATA.role_order||[]).filter(r => DATA.skills.some(s => s.role === r[0])).length}</div>
+            <div style="color:var(--cp-text-muted); font-size:0.8rem;">role-agents</div>
+          </div>
+          <div class="card" data-route="skills/sprint-create">
+            <div class="label">Skills</div>
+            <div class="value">${stats.skills_total}</div>
+            <div style="color:var(--cp-text-muted); font-size:0.8rem;">${stats.skills_visible} shown in AGENTS.md</div>
+          </div>
+          <div class="card" data-route="people/lea-Teammate2">
+            <div class="label">Directs</div>
+            <div class="value">${stats.directs}</div>
+            <div style="color:var(--cp-text-muted); font-size:0.8rem;">${stats.personas_total} personas total</div>
+          </div>
+          <div class="card" data-route="operations/scheduled">
+            <div class="label">Scheduled tasks</div>
+            <div class="value">${stats.scheduled_tasks}</div>
+            <div style="color:var(--cp-text-muted); font-size:0.8rem;">DM-* (Windows Task Scheduler)</div>
+          </div>
+          <div class="card" data-route="workspace/scope-board">
+            <div class="label">Workspace</div>
+            <div class="value">${Object.keys(DATA.workspace).length - 1 + (DATA.workspace["one-on-ones"]||[]).length}</div>
+            <div style="color:var(--cp-text-muted); font-size:0.8rem;">artifacts &amp; 1:1 agendas</div>
+          </div>
+        </div>
+
+        <h2 style="margin-top:1.5rem">Agents</h2>
+        <div style="color:var(--cp-text-muted); font-size:0.9rem; margin-bottom:0.75rem;">
+          Nirvana wears ${(DATA.role_order||[]).filter(r => DATA.skills.some(s => s.role === r[0])).length} hats — each role-agent owns a coherent slice of Nir's job. Click one to jump in.
+        </div>
+        <div class="cards">
+          ${(() => {
+            const byRole = new Map();
+            for (const s of DATA.skills) {
+              if (!byRole.has(s.role)) byRole.set(s.role, []);
+              byRole.get(s.role).push(s);
+            }
+            const ord = (DATA.role_order || []).map(r => r[0]).filter(r => byRole.has(r));
+            return ord.map(role => {
+              const list = byRole.get(role) || [];
+              const first = list[0];
+              return `
+                <div class="card" data-route="skills/${escapeAttr(first.slug)}">
+                  <div class="card-title" style="font-weight:600">${escapeHtml(roleLabel(role))} <span class="badge accent">${list.length}</span></div>
+                  <div style="color:var(--cp-text-muted); font-size:0.85rem;">${escapeHtml(roleBlurb(role) || (list.length + " skills"))}</div>
+                </div>`;
+            }).join("");
+          })()}
+        </div>
+
+        ${activityHtml}
+
+        <h2 style="margin-top:1.5rem">Jump in</h2>
+        <div class="cards">
+          <div class="card" data-route="workspace/scope-board">
+            <div class="card-title" style="font-weight:600">Directs Scope Board</div>
+            <div style="color:var(--cp-text-muted); font-size:0.85rem;">What each of the 13 directs is working on now &amp; next.</div>
+          </div>
+          <div class="card" data-route="workspace/team-agenda">
+            <div class="card-title" style="font-weight:600">Team agenda</div>
+            <div style="color:var(--cp-text-muted); font-size:0.85rem;">Open follow-ups &amp; discussion items for the WSR.</div>
+          </div>
+          <div class="card" data-route="workspace/personal-todos">
+            <div class="card-title" style="font-weight:600">Personal todos</div>
+            <div style="color:var(--cp-text-muted); font-size:0.85rem;">PT-NNN list driving the daily reminder email.</div>
+          </div>
+          <div class="card" data-route="about/nirvana">
+            <div class="card-title" style="font-weight:600">About Nirvana</div>
+            <div style="color:var(--cp-text-muted); font-size:0.85rem;">Persona, voice, jokes, signature.</div>
+          </div>
+        </div>
+
+        <h2 style="margin-top:1.5rem">Skills by agent</h2>
+        <div style="color:var(--cp-text-muted); font-size:0.9rem; margin-bottom:0.75rem;">
+          ${DATA.skills.length} skills organized into ${(DATA.role_order||[]).filter(r => DATA.skills.some(s => s.role === r[0])).length} role-agents.
+        </div>
+        ${(() => {
+          const byRole = new Map();
+          for (const s of DATA.skills) {
+            if (!byRole.has(s.role)) byRole.set(s.role, []);
+            byRole.get(s.role).push(s);
+          }
+          const ord = (DATA.role_order || []).map(r => r[0]);
+          for (const r of byRole.keys()) if (!ord.includes(r)) ord.push(r);
+          return ord.map(role => {
+            const list = byRole.get(role) || [];
+            if (!list.length) return "";
+            return `
+              <h3 style="margin-top:1.25rem">${escapeHtml(roleLabel(role))} <span class="badge accent">${list.length}</span></h3>
+              ${roleBlurb(role) ? `<div style="color:var(--cp-text-muted); font-size:0.85rem; margin-bottom:0.5rem;">${escapeHtml(roleBlurb(role))}</div>` : ""}
+              <div class="cards">
+                ${list.map(s => `
+                  <div class="card skill-card" data-route="skills/${escapeAttr(s.slug)}">
+                    <div class="name">${escapeHtml(s.name)}${s.status === "preview" ? ' <span class="badge preview" title="Work in progress — voice still calibrating">preview</span>' : ""}</div>
+                    <div class="summary">${escapeHtml(s.summary)}</div>
+                  </div>
+                `).join("")}
+              </div>`;
+          }).join("");
+        })()}
+      `;
+    }
+
+    function relativeTime(epochSec) {
+      if (!epochSec) return "";
+      const now = Date.now() / 1000;
+      const d = now - epochSec;
+      if (d < 60) return Math.floor(d) + "s ago";
+      if (d < 3600) return Math.floor(d / 60) + "m ago";
+      if (d < 86400) return Math.floor(d / 3600) + "h ago";
+      const days = Math.floor(d / 86400);
+      return days + "d ago";
+    }
+
+    function renderAbout() {
+      const persona = DATA.personas.find(p => p.is_nirvana);
+      if (!persona) return `<div class="empty">No Nirvana persona file found.</div>`;
+      return `
+        <div class="crumbs"><span class="chip">About</span> · Nirvana</div>
+        <h1 class="title-h1">${escapeHtml(persona.name || "Nirvana")}</h1>
+        <div class="md">${persona.html}</div>
+      `;
+    }
+
+    function renderConvention(slug) {
+      const c = (DATA.conventions || {})[slug];
+      if (!c) return `<div class="empty">Convention not found: ${escapeHtml(slug)}</div>`;
+      return `
+        <div class="crumbs"><span class="chip">Conventions</span> · ${escapeHtml(c.label)}</div>
+        <h1 class="title-h1">${escapeHtml(c.label)}</h1>
+        <div class="md">${c.html || '<p class="empty">empty</p>'}</div>
+      `;
+    }
+
+    function renderSkill(slug) {
+      const s = DATA.skills.find(x => x.slug === slug);
+      if (!s) return `<div class="empty">Skill not found: ${escapeHtml(slug)}</div>`;
+      // Look up scheduled task hits by skill name in args
+      const relatedTasks = (DATA.scheduled_tasks || []).filter(t => {
+        const args = (t.Arguments || "").toLowerCase();
+        return args.includes("/" + s.slug + "/") || args.includes("run-" + s.slug + ".ps1") || args.includes(s.slug);
+      });
+
+      // ---- Run-this-skill panel ----
+      const hasEntrypoint = !!s.entrypoint_path;
+      const triggersStr = (s.triggers && s.triggers.length) ? s.triggers[0] : "";
+      const cmdLine = hasEntrypoint
+        ? `powershell -NoProfile -File .\\${s.entrypoint_path.replace(/\//g, "\\")}`
+        : (triggersStr ? `(chat) ${triggersStr}` : "(invoked from chat — see triggers)");
+
+      let paramsBlock = "";
+      if (s.params && s.params.length) {
+        paramsBlock = `
+          <h4 style="margin:1rem 0 0.3rem;">Parameters</h4>
+          <table class="md" style="font-size:0.85rem; padding:0;">
+            <thead><tr><th>Name</th><th>Type</th><th>Default</th><th>Notes</th></tr></thead>
+            <tbody>
+              ${s.params.map(p => `<tr>
+                <td><span class="mono">-${escapeHtml(p.name)}</span></td>
+                <td><span class="mono">${escapeHtml(p.type || (p.switch ? "switch" : ""))}</span></td>
+                <td><span class="mono">${escapeHtml(p.default || "")}</span></td>
+                <td>${p.mandatory ? '<span class="badge accent">required</span>' : ""}${p.switch ? ' <span class="badge">switch</span>' : ""}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>`;
+      } else if (hasEntrypoint) {
+        paramsBlock = `<div style="color:var(--cp-text-muted); margin-top:0.5rem;">No parameters declared.</div>`;
+      }
+
+      const allRecent = [
+        ...(s.recent_files || []).map(f => ({...f, kind: "output"})),
+        ...(s.recent_logs || []).map(f => ({...f, kind: "log"})),
+      ].sort((a, b) => b.mtime_epoch - a.mtime_epoch).slice(0, 8);
+
+      let recentBlock = "";
+      if (allRecent.length) {
+        recentBlock = `
+          <h4 style="margin:1rem 0 0.3rem;">Recent runs <span style="font-size:0.7rem; color:var(--cp-text-muted); font-weight:400;">(${s.outputs_folder ? escapeHtml(s.outputs_folder) + " + " : ""}reports/logs/) — click a row to preview</span></h4>
+          <table class="md" style="font-size:0.85rem; padding:0;">
+            <thead><tr><th>File</th><th>Kind</th><th>Modified</th><th>Size</th></tr></thead>
+            <tbody>
+              ${allRecent.map(f => `<tr class="recent-row" data-path="${escapeAttr(f.path)}">
+                <td><span class="mono">${escapeHtml(f.path)}</span></td>
+                <td>${f.kind === "log" ? '<span class="badge">log</span>' : '<span class="badge accent">output</span>'}</td>
+                <td>${escapeHtml(new Date(f.mtime).toLocaleString())}</td>
+                <td style="text-align:right;">${formatSize(f.size)}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>`;
+      } else {
+        recentBlock = `<div style="color:var(--cp-text-muted); margin-top:0.5rem;">No recent runs found.</div>`;
+      }
+
+      const runPanel = `
+        <details class="run-panel" open>
+          <summary><strong>Run this skill</strong> · what happens if you invoke it now</summary>
+          <div class="run-body">
+            <div style="margin-top:0.5rem;">
+              <span class="badge accent">Invocation</span>
+              <div class="cmdline mono">${escapeHtml(cmdLine)}</div>
+              ${triggersStr ? `<div style="font-size:0.8rem; color:var(--cp-text-muted); margin-top:0.3rem;">Or paste this into chat: <span class="mono">${escapeHtml(triggersStr)}</span> <button class="trigger" style="padding:0.1rem 0.5rem; font-size:0.75rem;" data-copy="${escapeAttr(triggersStr)}">copy</button></div>` : ""}
+            </div>
+            ${paramsBlock}
+            ${recentBlock}
+            ${relatedTasks.length ? `
+              <h4 style="margin:1rem 0 0.3rem;">Scheduled tasks</h4>
+              <ul style="margin-top:0;">
+                ${relatedTasks.map(t => `<li><span class="mono">${escapeHtml(t.Name)}</span> · ${escapeHtml(t.State || "")} · next ${escapeHtml(formatDate(t.NextRun))} <span style="color:var(--cp-text-muted)">— ${escapeHtml(t.Triggers || "")}</span></li>`).join("")}
+              </ul>
+            ` : ""}
+          </div>
+        </details>
+      `;
+
+      const previewBanner = s.status === "preview" ? `
+        <div class="preview-banner">
+          <div class="preview-icon">⚠️</div>
+          <div class="preview-body">
+            <div class="preview-title">Preview · work in progress</div>
+            <div class="preview-text">${escapeHtml(s.status_note || "This skill is still being fine-tuned. Behavior, voice, or output may shift between sessions.")}</div>
+          </div>
+        </div>
+      ` : "";
+
+      return `
+        <div class="crumbs">
+          <span class="chip">Agents</span> · ${escapeHtml(roleLabel(s.role))} · <span class="mono">${escapeHtml(s.path)}</span>
+        </div>
+        <h1 class="title-h1">${escapeHtml(s.name)}${s.status === "preview" ? ' <span class="badge preview" style="vertical-align:middle; margin-left:0.5rem;">preview</span>' : ""}</h1>
+        <div class="subtitle-row">${escapeHtml(s.summary)}</div>
+        <div class="meta-row">
+          <span class="badge accent">${escapeHtml(roleLabel(s.role))}</span>
+          <span class="badge">${escapeHtml(categoryLabel(s.category))}</span>
+          ${s.surface ? `<span class="badge">surface: ${escapeHtml(s.surface)}</span>` : ""}
+          <span class="badge">${s.show_in_agents ? "in AGENTS.md" : "hidden"}</span>
+          ${s.ship_in_snapshot ? `<span class="badge">ships in snapshot</span>` : ""}
+        </div>
+
+        ${previewBanner}
+
+        ${(s.triggers && s.triggers.length) ? `
+          <h3>Trigger phrases <span style="font-size:0.75rem; color:var(--cp-text-muted); font-weight:400;">(click to copy)</span></h3>
+          <div class="triggers">
+            ${s.triggers.map(t => `<button class="trigger" data-copy="${escapeAttr(t)}">${escapeHtml(t)} <span class="copy-ico">⧉</span></button>`).join("")}
+          </div>
+        ` : ""}
+
+        ${runPanel}
+
+        ${(s.rules_docs && s.rules_docs.length) ? `
+          <h3>Rules <span style="font-size:0.75rem; color:var(--cp-text-muted); font-weight:400;">(${s.rules_docs.length} file${s.rules_docs.length === 1 ? '' : 's'} under <span class="mono">${escapeHtml(s.path)}/rules/</span> — applied on every run)</span></h3>
+          ${s.rules_docs.map((r, i) => `
+            <details class="run-panel" ${i === 0 ? 'open' : ''}>
+              <summary><strong>${escapeHtml(r.title)}</strong> · <span class="mono" style="font-weight:400; color:var(--cp-text-muted);">${escapeHtml(r.path)}</span></summary>
+              <div class="run-body md">${r.html || '<p class="empty">empty</p>'}</div>
+            </details>
+          `).join("")}
+        ` : ""}
+
+        <h3>SKILL.md</h3>
+        <div class="md">${s.html || '<p class="empty">No SKILL.md found at ' + escapeHtml(s.path) + '</p>'}</div>
+      `;
+    }
+
+    function formatSize(b) {
+      if (b == null) return "";
+      if (b < 1024) return b + " B";
+      if (b < 1024*1024) return (b/1024).toFixed(1) + " KB";
+      return (b/1024/1024).toFixed(1) + " MB";
+    }
+
+    function renderPerson(slug) {
+      const p = DATA.personas.find(x => x.slug === slug);
+      if (!p) return `<div class="empty">Persona not found: ${escapeHtml(slug)}</div>`;
+      return `
+        <div class="crumbs"><span class="chip">People</span> · ${escapeHtml(p.name)}</div>
+        <h1 class="title-h1">${escapeHtml(p.name)}</h1>
+        <div class="md">${p.html}</div>
+      `;
+    }
+
+    function renderWorkspace(slug) {
+      const w = (DATA.workspace || {})[slug];
+      if (!w || slug === "one-on-ones") return `<div class="empty">Workspace artifact not found: ${escapeHtml(slug)}</div>`;
+      return `
+        <div class="crumbs"><span class="chip">Workspace</span> · <span class="mono">${escapeHtml(w.path)}</span></div>
+        <h1 class="title-h1">${escapeHtml(w.label)}</h1>
+        <div class="md">${w.html || '<p class="empty">empty</p>'}</div>
+      `;
+    }
+
+    function renderOneOnOne(slug) {
+      const o = (DATA.workspace["one-on-ones"] || []).find(x => x.slug === slug);
+      if (!o) return `<div class="empty">1:1 not found: ${escapeHtml(slug)}</div>`;
+      return `
+        <div class="crumbs"><span class="chip">1:1</span> · <span class="mono">${escapeHtml(o.path)}</span></div>
+        <h1 class="title-h1">${escapeHtml(o.label)}</h1>
+        <div class="md">${o.html}</div>
+      `;
+    }
+
+    function renderScheduled() {
+      const tasks = DATA.scheduled_tasks || [];
+      if (!tasks.length) {
+        return `<div class="empty">No scheduled tasks found (or PowerShell enumeration not available).</div>`;
+      }
+      const rows = tasks.map(t => {
+        const state = (t.State || "").toLowerCase();
+        const pill = state === "ready" ? `<span class="pill ready">${escapeHtml(t.State)}</span>` :
+                     state === "running" ? `<span class="pill running">${escapeHtml(t.State)}</span>` :
+                     state === "disabled" ? `<span class="pill disabled">${escapeHtml(t.State)}</span>` :
+                     escapeHtml(t.State || "");
+        return `<tr>
+          <td><span class="mono">${escapeHtml(t.Name)}</span></td>
+          <td>${pill}</td>
+          <td>${escapeHtml(formatDate(t.NextRun))}</td>
+          <td>${escapeHtml(formatDate(t.LastRun))}</td>
+          <td>${escapeHtml(t.LastResult === undefined ? "" : String(t.LastResult))}</td>
+          <td><span class="mono" style="font-size:0.75rem;">${escapeHtml(t.Triggers || "")}</span></td>
+        </tr>`;
+      }).join("");
+      return `
+        <div class="crumbs"><span class="chip">Operations</span> · Scheduled tasks</div>
+        <h1 class="title-h1">Scheduled tasks (${tasks.length})</h1>
+        <div class="subtitle-row">Windows Task Scheduler entries matching <span class="mono">DM-*</span>.</div>
+        <table class="tasks-table">
+          <thead><tr>
+            <th>Name</th><th>State</th><th>Next run</th><th>Last run</th><th>Last result</th><th>Triggers</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function formatDate(s) {
+      if (!s) return "";
+      try {
+        const d = new Date(s);
+        if (isNaN(d)) return s;
+        return d.toLocaleString();
+      } catch (e) { return s; }
+    }
+
+    function route() {
+      const hash = (location.hash || "#home").slice(1);
+      const [section, ...rest] = hash.split("/");
+      const slug = rest.join("/");
+      let html;
+      switch (section) {
+        case "home":          html = renderHome(); break;
+        case "about":         html = renderAbout(); break;
+        case "conventions":   html = renderConvention(slug); break;
+        case "skills":        html = renderSkill(slug); break;
+        case "people":        html = renderPerson(slug); break;
+        case "workspace":     html = renderWorkspace(slug); break;
+        case "one-on-ones":   html = renderOneOnOne(slug); break;
+        case "operations":    html = renderScheduled(); break;
+        default:              html = renderHome();
+      }
+      const main = document.getElementById("main");
+      main.innerHTML = html + `
+        <footer>
+          Nirvana Explorer · built ${escapeHtml(DATA.stats.built_at)} · ${DATA.skills.length} skills · ${DATA.personas.length} personas · ${DATA.scheduled_tasks.length} scheduled tasks
+        </footer>`;
+      main.scrollTop = 0;
+      window.scrollTo({ top: 0 });
+
+      // wire copy-trigger buttons
+      main.querySelectorAll(".trigger").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const text = btn.getAttribute("data-copy");
+          try {
+            await navigator.clipboard.writeText(text);
+            btn.classList.add("copied");
+            const orig = btn.innerHTML;
+            btn.innerHTML = "✓ copied";
+            setTimeout(() => { btn.classList.remove("copied"); btn.innerHTML = orig; }, 1200);
+          } catch (e) {
+            // fallback: select + execCommand
+            const r = document.createRange();
+            r.selectNodeContents(btn);
+            const sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(r);
+          }
+        });
+      });
+      // wire card click navigation
+      main.querySelectorAll(".card[data-route]").forEach(c => {
+        c.addEventListener("click", () => { location.hash = "#" + c.getAttribute("data-route"); });
+      });
+      // wire recent-run row preview
+      main.querySelectorAll("tr.recent-row").forEach(row => {
+        row.addEventListener("click", () => {
+          const p = row.getAttribute("data-path");
+          if (p) openPreview(p);
+        });
+      });
+      // wire activity-feed row click
+      main.querySelectorAll("tr.activity-row").forEach(row => {
+        row.addEventListener("click", () => {
+          const route = row.getAttribute("data-route");
+          const path = row.getAttribute("data-path");
+          if (route) {
+            location.hash = "#" + route;
+          } else if (path) {
+            openPreview(path);
+          }
+        });
+      });
+
+      // refresh sidebar active-state
+      renderSidebar(document.getElementById("search").value);
+    }
+
+    window.addEventListener("hashchange", route);
+
+    // Search wiring
+    document.getElementById("search").addEventListener("input", (e) => {
+      renderSidebar(e.target.value);
+    });
+
+    // Initial render
+    renderSidebar("");
+    route();
+  </script>
+</body>
+</html>
+

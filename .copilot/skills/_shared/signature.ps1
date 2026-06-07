@@ -61,7 +61,8 @@ function _Resolve-NoticePath {
 function Get-NirvanaSignature {
     [CmdletBinding()]
     param(
-        [ValidateSet('Default', 'InboxAuto', 'RunnerHeartbeat')]
+        # Unknown variants fall back to 'Default' with a warning (defensive — a typo
+        # at a call site must NOT cause the disclosure block to disappear silently).
         [string] $Variant = 'Default',
 
         # Used only by the RunnerHeartbeat variant - identifies which runner sent the email.
@@ -75,6 +76,14 @@ function Get-NirvanaSignature {
     )
 
     if ($NoSig) { return '' }
+
+    $known = @('Default', 'InboxAuto', 'RunnerHeartbeat')
+    if ([string]::IsNullOrWhiteSpace($Variant)) {
+        $Variant = 'Default'
+    } elseif ($Variant -notin $known) {
+        Write-Warning "Get-NirvanaSignature: unknown Variant '$Variant'; falling back to 'Default'. Valid values: $($known -join ', ')."
+        $Variant = 'Default'
+    }
 
     $cfg          = Get-AgentConfig
     $first        = Get-AgentField -Path 'manager.first_name'                   -Config $cfg -Default 'Manager'
@@ -125,9 +134,17 @@ function Get-NirvanaSignature {
 function Get-NirvanaSignatureText {
     [CmdletBinding()]
     param(
-        [ValidateSet('Default', 'InboxAuto', 'WhatsAppGroupHe')]
+        # Unknown variants fall back to 'Default' with a warning.
         [string] $Variant = 'Default'
     )
+
+    $known = @('Default', 'InboxAuto', 'WhatsAppGroupHe')
+    if ([string]::IsNullOrWhiteSpace($Variant)) {
+        $Variant = 'Default'
+    } elseif ($Variant -notin $known) {
+        Write-Warning "Get-NirvanaSignatureText: unknown Variant '$Variant'; falling back to 'Default'. Valid values: $($known -join ', ')."
+        $Variant = 'Default'
+    }
 
     $cfg        = Get-AgentConfig
     $first      = Get-AgentField -Path 'manager.first_name'              -Config $cfg -Default 'Manager'

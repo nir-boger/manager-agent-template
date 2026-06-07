@@ -9,7 +9,7 @@ Post a message to the **Your Team** Teams channel via the **email-triggered Powe
 - Outlook → Power Automate → Teams is the only path that works here. Don't try the webhook approaches again.
 
 ## Fixed context
-- **Trigger mailbox**: `youralias@microsoft.com` (Nir — must be the From *and* To)
+- **Trigger mailbox**: `someone@example.com` (Nir — must be the From *and* To)
 - **Subject tag**: the subject **must contain `NirvanaTeams`** somewhere. **NO square brackets** (e.g. `[NirvanaTeams]`) — brackets break Power Automate's V3 email-trigger subject filter and the flow never fires.
 - **Latency**: ~1–3 minutes between send and channel post.
 - **Log file**: `<repo>\reports\teams\YYYY-MM-DD.md` (append one line per post)
@@ -51,7 +51,7 @@ if (-not (Get-Process OUTLOOK -ErrorAction SilentlyContinue)) {
    ```powershell
    $ol   = New-Object -ComObject Outlook.Application
    $mail = $ol.CreateItem(0)              # 0 = olMailItem
-   $mail.To       = 'youralias@microsoft.com'
+   $mail.To       = 'someone@example.com'
    $mail.Subject  = $Subject               # must contain 'NirvanaTeams', no brackets
    $mail.HTMLBody = $Html
    $mail.Send()
@@ -70,7 +70,7 @@ if (-not (Get-Process OUTLOOK -ErrorAction SilentlyContinue)) {
 - Do **not** add brackets or any other wrapping around `NirvanaTeams` in the subject. `[NirvanaTeams]`, `(NirvanaTeams)`, `<NirvanaTeams>` all break the trigger.
 - Do **not** try to post via `$env:TEAMS_WEBHOOK_URL` — that path is blocked by tenant DLP. If the user asks why not, explain and stick with Option B.
 - Do **not** append the Nirvana email signature. Teams posts must be unsigned.
-- Do **not** send from/to anything other than `youralias@microsoft.com` — the flow's From+To filters require it.
+- Do **not** send from/to anything other than `someone@example.com` — the flow's From+To filters require it.
 - Do **not** delete or move the trigger email before the flow has had ~3 minutes to pick it up.
 - Do **not** attach files.
 - Do **not** modify any ADO work items as part of this skill.

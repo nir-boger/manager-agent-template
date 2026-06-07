@@ -50,6 +50,16 @@ List items still in `New` or `Active` if working-days-left <= 3.
 ## Items table
 | ID | Type | State | Assignee | Title |
 |---|---|---|---|---|
+
+## Nirvana's contributions
+Always include this block — Nirvana is also one of Nir's directs (`team-personas/people/nirvana.md`), but she carries no ADO work items so she's not in the "By person" table. Source from `<repo>\reports\logs\*-<YYYY-MM-DD>.log`:
+- **Emails sent today:** `<count>` (from `agent-todos`, `inbox-watch`, `team-milestones`, `personas-import`, `daily-summary-import`, `connect-buddy`, `send-email-from-todo`, runner heartbeats).
+- **TODOs processed:** `<count>` (from `agent-todos-<YYYY-MM-DD>.log`).
+- **Skills exercised:** `<comma-separated list>`.
+- **Milestones / one-shot actions:** `<e.g., birthday reminder sent for X; PR reminder posted on #12345>`.
+- One short joke or self-deprecating line about the day's work — same voice as the email joke.
+
+Omit any sub-bullet whose count is zero. If the whole block would be empty, write `Nirvana was idle today.` instead of dropping the section.
 ```
 
 6. Echo one-line summary to stdout: `Daily report written: <path>  (done <c>/<total>, <pct>%)`.
@@ -61,4 +71,5 @@ If yesterday's file exists, compute and include "Closed/Resolved since yesterday
 - Do **not** modify any work items.
 - Do **not** include Story Points or Original Estimate — we count 1 unit per item.
 - Do **not** prompt the user.
+
 

@@ -18,10 +18,13 @@ $ErrorActionPreference = 'Stop'
 # Whitelist (alphabetical):
 $portable = @(
     'config.tests.ps1',
+    'comms.tests.ps1',
+    'invoke-agent.tests.ps1',
     'migration-mode.tests.ps1',
     'render-template.tests.ps1',
     'runner-prelude.tests.ps1',
     'runners-bootstrap.tests.ps1',
+    'schedule-sync.tests.ps1',
     'skills-manifest.tests.ps1'
 )
 

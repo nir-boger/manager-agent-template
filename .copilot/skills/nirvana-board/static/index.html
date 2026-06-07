@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nirvana Board</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const stored = localStorage.getItem("nirvana-theme");
+      const theme =
+        param || stored ||
+        (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <pre id="brand-ascii"></pre>
+      <div>
+        <div class="title">Nirvana Board</div>
+        <div class="subtitle" id="board-subtitle">loading...</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <a class="topbar-link" href="/explorer" title="Open the Nirvana Explorer (skills grouped by the 6 role-agents, personas, artifacts)">Agents &rarr;</a>
+    <button id="refresh-btn" class="icon" title="Reload from disk">&#x21bb; refresh</button>
+    <button id="theme-btn" class="icon" title="Toggle theme">&#x263d; theme</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section">
+        <h4>Views</h4>
+        <ul>
+          <li class="nav-item active" data-tab="todos">
+            <span>Todos</span>
+            <span class="count" id="count-todos">-</span>
+          </li>
+          <li class="nav-item" data-tab="agenda">
+            <span>Team agenda</span>
+            <span class="count" id="count-agenda">-</span>
+          </li>
+          <li class="nav-item" data-tab="ai-plan">
+            <span>AI Plan</span>
+            <span class="count" id="count-ai-plan">-</span>
+          </li>
+          <li class="nav-item" data-tab="one-on-ones">
+            <span>1:1s</span>
+            <span class="count" id="count-1on1">-</span>
+          </li>
+          <li class="nav-item" data-tab="scope-board">
+            <span>Scope board</span>
+            <span class="count" id="count-scope-board">-</span>
+          </li>
+          <li class="nav-item" data-tab="sdk-rotation">
+            <span>SDK rotation</span>
+            <span class="count" id="count-sdk-rotation">-</span>
+          </li>
+        </ul>
+      </div>
+      <div class="nav-section" id="partner-section" style="display:none">
+        <h4>1:1 partners</h4>
+        <ul id="partner-list"></ul>
+      </div>
+      <div class="nav-section">
+        <h4>Filters</h4>
+        <ul>
+          <li class="nav-item filter active" data-filter="open">Open only</li>
+          <li class="nav-item filter" data-filter="all">All (incl. closed)</li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="crumbs">
+        <span class="chip" id="crumb-tab">Todos</span>
+        <span id="crumb-tail"></span>
+      </div>
+      <h1 class="title-h1" id="view-title">Todos</h1>
+      <div class="subtitle-row" id="view-subtitle">Loading from <code>reports/personal-todos/todos.md</code>...</div>
+
+      <div class="toolbar">
+        <button class="primary" id="add-btn">+ Add</button>
+        <span class="hint" id="open-in-md-hint"></span>
+      </div>
+
+      <div id="cards-host" class="cards-host"></div>
+    </main>
+  </div>
+
+  <!-- Add modal -->
+  <div class="modal-backdrop hidden" id="modal-backdrop">
+    <div class="modal" role="dialog" aria-labelledby="modal-title">
+      <header>
+        <h2 id="modal-title">Add</h2>
+        <button class="icon" id="modal-close" aria-label="Close">&times;</button>
+      </header>
+      <form id="add-form" autocomplete="off">
+        <div id="form-fields"></div>
+        <div class="modal-actions">
+          <button type="button" class="ghost" id="modal-cancel">Cancel</button>
+          <button type="submit" class="primary" id="modal-submit">Add</button>
+        </div>
+        <div class="form-error hidden" id="form-error"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Snooze modal -->
+  <div class="modal-backdrop hidden" id="snooze-backdrop">
+    <div class="modal small" role="dialog" aria-labelledby="snooze-title">
+      <header>
+        <h2 id="snooze-title">Snooze</h2>
+        <button class="icon" id="snooze-close" aria-label="Close">&times;</button>
+      </header>
+      <form id="snooze-form">
+        <label>Snooze until <input type="date" id="snooze-date" required /></label>
+        <div class="modal-actions">
+          <button type="button" class="ghost" id="snooze-cancel">Cancel</button>
+          <button type="submit" class="primary">Snooze</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

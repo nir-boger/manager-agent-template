@@ -1,6 +1,6 @@
 ---
 name: "agent-todos"
-description: "Process the Outlook task list named '🖥 Nirvana Agent' (match by emoji + 'Nirvana Agent' substring; the displayed name contains a stealth Unicode space). Each task's Title + Body is a free-form instruction Nir is delegating: send an email, reply to a thread, post to Teams, send a WhatsApp message, do research, ask a codebase question, or any multi-step combination. After acting, ALWAYS reply to Nir with a summary email and mark the task complete. Auto-polled every 5 min daily 08:00–19:00 IST by the DM-NirvanaAgentTodos scheduled task; also triggerable via 'process my nirvana agent', 'run my nirvana agent todos', 'scan nirvana agent', 'nirvana agent todos', 'what's in my agent list'."
+description: "Process the Outlook task list named '🖥 Nirvana Agent' (match by emoji + 'Nirvana Agent' substring; the displayed name contains a stealth Unicode space). Each task's Title + Body is a free-form instruction Nir is delegating: send an email, reply to a thread, post to Teams, send a WhatsApp message, do research, ask a codebase question, or any multi-step combination. After acting, ALWAYS reply to Nir with a summary email and mark the task complete. Auto-polled every 5 min, 24/7 (all hours, all days) by the DM-NirvanaAgentTodos scheduled task; also triggerable via 'process my nirvana agent', 'run my nirvana agent todos', 'scan nirvana agent', 'nirvana agent todos', 'what's in my agent list'."
 ---
 
 # Skill: agent-todos
@@ -12,7 +12,7 @@ This is Nir's **single inbox for delegating work to Nirvana**. He drops free-for
 3. Sends a **summary reply email** back to Nir at `you@example.com`.
 4. Marks the task complete — **only on success**. On failure or ambiguity, leaves the task open and emails Nir what was tried and why it stopped.
 
-Auto-polled every 5 min daily 08:00–19:00 IST (all 7 days) by `DM-NirvanaAgentTodos` (runner: `<repo>\.copilot\skills\run-agent-todos.ps1`).
+Auto-polled every 5 min **24/7** (all hours, all days) by `DM-NirvanaAgentTodos` (runner: `<repo>\.copilot\skills\run-agent-todos.ps1`).
 
 ## Trigger phrases
 - "process my nirvana agent" / "process my nirvana agent todos"
@@ -90,7 +90,7 @@ Scan the full Title and Body (case-insensitive) for these directives. They overr
 | Directive (any of these tokens) | Effect |
 |---|---|
 | `reply all`, `reply-all`, `reply to all`, or just `reply` (default = Reply All per Nirvana convention) | **Reply mode** — find the existing thread; use `MailItem.ReplyAll()` (or `Reply()` if user explicitly said "reply only" / "reply just to sender"). See §"Reply-mode thread search". |
-| `cc the team`, `keep my team informed`, `keep the team in the loop`, `cc kdms` | Add `kdms@microsoft.com` to CC. |
+| `cc the team`, `keep my team informed`, `keep the team in the loop`, `cc team` | Add `team@example.com` to CC. |
 | `cc <name/email>` | Add that person to CC (resolve via persona / GAL). |
 | `bcc <name/email>` | Add to BCC. |
 | `NOJOKE`, `NO JOKE`, `no-joke` | Omit the joke (signature stays). |
@@ -98,6 +98,8 @@ Scan the full Title and Body (case-insensitive) for these directives. They overr
 | `draft only`, `do not send`, `preview only` | Compose, save to Drafts (`$mail.Save()`), do **not** call `Send()`. Show preview. |
 | `PREVIEW` | Always preview before sending, even for routine TODOs. |
 | `use <skill-name>` (e.g. `use your codebase skill`, `use codebase`, `via team-personas`) | **Skill composition** — read `.copilot/skills/<skill>/SKILL.md` and run that skill first; integrate its output into the email/post/summary. |
+| `add to my personal todo`, `add a personal todo`, `PT add`, `add to my todo list` | **Personal-todos route** — read `.copilot/skills/personal-todos/SKILL.md` and run **Add item** mode on the body. Parse title / category / priority / due / notes, then **invoke the helper** `python .copilot/skills/personal-todos/add-item.py --todos-file reports/personal-todos/todos.md --title "<title>" [--category work\|personal] [--priority H\|M\|L] [--due <natural>] [--notes "<…>"]`. Never hand-roll Markdown — the helper is the single source of truth for ID assignment and field shape. Capture stdout (`PT-NNN\t…\t…`), then mark the agent task complete with a one-line summary email. |
+| `PT accept N[,N,...]` (e.g. `PT accept 1,3,5`) | **Suggest-accept route** — read `.copilot/skills/personal-todos/state/last-suggest.json`, materialize the numbered candidates into real `PT-NNN` rows under `## Open` in `reports/personal-todos/todos.md`, summarize which were added. |
 | Explicit subject hint in quotes (e.g. `"Re: [PUBLIC] Sev 3: ID 768835342: …"`) | Use that as the **thread search query** in §"Reply-mode thread search". |
 | ICM ID like `ID 768835342` or `ICM 12345` | Use as the thread search query. |
 
@@ -125,6 +127,34 @@ For replies:
 2. If 0 matches → STOP for that item; do **not** silently fall back to a fresh email.
 3. Compose new content (§"Draft the email" — but no salutation if it's already in the quoted history).
 4. Send via `MailItem.ReplyAll()` / `Reply()` (§"Send mechanics — reply").
+
+##### 5a.1 Outbound content sanity check — **compose, don't paste** (mandatory)
+
+The outbound email body must be a **fresh compose written *as Nir* to the named recipients** — never a paste of a prior internal Nirvana → Nir analysis. If the TODO chain is `(1) email me the analysis → (2) now send that to <person>`, treat step 2 as a re-compose, not a forward of step 1.
+
+Before calling `Send()`/`ReplyAll()`/`Reply()` on any outbound email, scan the assembled HTML body and **reject the send (back to compose) if any of these appear**:
+
+- Section headers that are meta-framing for Nir, including but not limited to: `Status:`, `What I did`, `What <name> Got Right`, `Suggested Response`, `Suggested Reply`, `Suggested Followup`, `Output / artifacts`, `Analysis Results`, `Most Critical Finding`, `Important Gaps`, `Findings`, `Notes / open questions`. These belong **only** in the §6 internal summary email to Nir.
+- Local file paths: any `C:\`, `D:\`, `\\?\`, `~/`, `$env:TEMP`, `$env:LOCALAPPDATA`, or `%TEMP%` substring. Internal artifact paths never go outbound.
+- Internal Nirvana scaffolding: literal strings `[Nirvana]`, `[Nirvana] - Done`, `[Nirvana] - Needs your input`, ``$mail.``, ``$sig``, ``Get-NirvanaSignature``, ``EntryID``.
+- Third-person commentary *about* a recipient who is in the To/CC line (e.g., a "What X Got Right / Wrong" block addressed to X).
+- **Duplicate signature blocks** — search for two occurrences of the signature opening (`Sent on Nir's behalf by Nirvana` or `— Nirvana` on its own line in non-PR-comment contexts). If found, strip the second.
+
+If the body fails this check, **do not auto-strip and send** — back out to compose, rewrite from scratch in Nir's voice as if writing the email cold, and re-validate.
+
+##### 5a.2 Wide-distribution / automation-list sanity check (mandatory)
+
+Before `Send()`, inspect the resolved To + CC. If **any** address matches a DL / automation pattern, **stop and email Nir a `Needs your input` summary** with the proposed body and the offending recipient(s) — do **not** auto-send.
+
+DL / automation patterns to trip on:
+
+- Explicit DLs: `escalation-dl@`, `team@` (unless Nir said `cc the team` / `cc team`), `Kusto ICM Escalation`, `Your Team`, any address whose display name contains `Escalation`, `On-Call`, `Distribution List`, `(DL)`, `Team` (with no first-name), `All Hands`.
+- Automation accounts: `gauto*@`, `*ServiceAccount*@`, `Incident Automation*`, `noreply@`, `donotreply@`, `sas-mail@`, any address with display name containing `Service Account` or `Automation`.
+- ICM/incident threads: subject contains `[ErrorsDetectionAutomation]`, `[ICM]`, `Sev 1`, `Sev 2`, `Sev 3`, `Sev 4`, or `Incident `; or original sender domain is `noreply.icm.*`.
+
+Carve-out: if the TODO body explicitly names the DL — e.g. `reply all and keep escalation-dl` or `cc team` — pass the check.
+
+For ICM/incident-thread outbounds that pass the gate, **also drop the optional signature notice** (`Get-NirvanaSignature -NoNotice`) — the show & tell / weekly-announcement notice is appropriate for team and 1:1 mail but jarring on an active incident thread.
 
 #### 5b. `teams-post`
 1. Build the message body from the task body (markdown OK; convert to the HTML fragment style described in `post-to-teams/SKILL.md` step 2).
@@ -219,7 +249,7 @@ Markdown table at the end:
 
 | Task | Intent | Status | Output | Marked complete |
 |---|---|---|---|---|
-| Send Email to the team about Connect | email | Sent ✅ | `[Nirvana] - Microsoft Connect` to kdms | Yes |
+| Send Email to the team about Connect | email | Sent ✅ | `[Nirvana] - Microsoft Connect` to team | Yes |
 | Research X vs Y for Q3 plan | research | Researched ✅ | summary in reply email | Yes |
 | Post to Teams: lunch & learn Friday | teams-post | Posted ✅ | NirvanaTeams subject ... | Yes |
 | (vague body — couldn't classify) | unknown | Skipped ⚠️ | reply email asks for clarification | No |
@@ -235,7 +265,7 @@ If anything was skipped/failed, call it out at the bottom and ask Nir how to pro
 2. **Hard-coded shortcuts:**
    | Phrase | Address |
    |---|---|
-   | `team`, `the team`, `kdms` | `kdms@microsoft.com` |
+   | `team`, `the team`, `team` | `team@example.com` |
    | `myself`, `me`, `nir`, `Your Name` | `you@example.com` |
 3. **Outlook GAL** — `$r = $ns.CreateRecipient($name); $r.Resolve()`. If it resolves uniquely, use it.
 4. **`m365_search_people`** — last resort.
@@ -284,7 +314,7 @@ Per `<repo>\AGENTS.md`:
 Filler is OK for high-level topics; never fabricate technical specifics (cluster names, SHAs, ICM IDs, command parameters). When unsure, use a placeholder (e.g. `INGEST-XXXX`) and call it out.
 
 ### Send mechanics — new email
-- For `kdms@microsoft.com` (To) → invoke the `email-team` skill (it has team-specific conventions).
+- For `team@example.com` (To) → invoke the `email-team` skill (it has team-specific conventions).
 - Other recipients → direct Outlook COM as **HTML**:
   ```powershell
   $mail = $ol.CreateItem(0)

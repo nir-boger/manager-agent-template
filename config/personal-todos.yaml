@@ -1,0 +1,59 @@
+# personal-todos skill configuration
+#
+# Edit anytime. The skill re-reads this file every run.
+# Source of truth for: category set, reminder time, daily-email sections,
+# auto-suggest sources, joke override.
+
+# Allowed category values. Anything not in this list is rejected by add-mode.
+# Two-category lean: work vs personal. Add more here later if needed.
+categories:
+  - work
+  - personal
+
+# Default priority for new items when Nir doesn't specify one.
+# Allowed: H / M / L
+default_priority: M
+
+# Daily reminder time (local, IST). HH:mm 24h.
+# Edit and re-run the runner with -InstallTask to refresh the scheduled task.
+reminder_time: "07:00"
+
+# Days of week to SKIP the daily reminder email (local IST). Nir's work week is
+# Sun-Thu, so the weekend (Friday + Saturday) is skipped by default. The runner
+# re-reads this every run. Valid values: Sunday..Saturday (full English names).
+# Remove entries (or the whole list) to send every day. The on-demand
+# "send my daily todo email now" path (-Force) always sends regardless of this.
+skip_days:
+  - Friday
+  - Saturday
+
+# How many auto-suggested items to surface each morning.
+# Source scan order: inbox-watch deferred-to-Nir, team-milestones (upcoming
+# 7d birthdays / anniversaries). Falls back gracefully if a source folder
+# doesn't exist.
+suggest_count: 5
+
+# Which sub-sections to render in the daily email (in order).
+# Drop any section here to hide it from tomorrow's email.
+sections:
+  - today
+        # priority-H + due<=today + due-today
+  - overdue
+        # due-date in the past, still Open
+  - this_week
+        # due-date within next 7d (excluding today / overdue)
+  - later
+        # due-date > today+7d, plus no-due items not already in Today's focus
+  - suggest
+        # Nirvana's 3-5 auto-suggested candidates
+  - snoozed
+        # collapsed; rendered as <details>
+  - stats
+        # this-week count: N done, M open, K added
+
+# Snooze parser defaults. Used when "snooze PT-007" given without a target date.
+snooze:
+  default_days: 3
+
+# Joke pool override for the daily email. Leave empty to use the built-in pool.
+jokes: []

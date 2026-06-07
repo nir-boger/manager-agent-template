@@ -1,6 +1,6 @@
 # Runs the agent-todos skill non-interactively.
-# Called by the "DM-NirvanaAgentTodos" Windows Scheduled Task every 5 minutes
-# during work hours (Sun-Thu 08:00-19:00 IST).
+# Called by the "DM-NirvanaAgentTodos" Windows Scheduled Task every 5 minutes,
+# 24/7 (all hours, all days). Saved Nir preference 2026-05-09.
 #
 # Guards:
 #   - Outlook must be running (skill aborts cleanly otherwise).
@@ -61,7 +61,7 @@ try {
 
     $prompt = "Read the skill definition at $AgentRoot\.copilot\skills\agent-todos\SKILL.md and execute it exactly as described. Do not ask me any questions - proceed autonomously. Honor the 60-second settle period (skip tasks modified within the last 60s). When done, print a one-line summary per task processed."
 
-    & copilot -p $prompt --allow-all-tools --allow-all-paths --no-ask-user --model claude-sonnet-4.5 *>&1 | Tee-Object -FilePath $logFile
+    Invoke-CopilotAgent -Prompt $prompt -LogFile $logFile -AllowAllPaths | Out-Null
 }
 finally {
     Remove-Item $lockPath -Force -ErrorAction SilentlyContinue

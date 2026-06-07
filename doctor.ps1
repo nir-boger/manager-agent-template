@@ -124,6 +124,32 @@ if (-not (Test-Path $skillsPath)) {
     }
 }
 
+# --- 3b. config/schedules.json schema (portable; not live parity) ---------
+Write-Section 'config/schedules.json'
+$schedPath = Join-Path $checkRoot 'config\schedules.json'
+if (-not (Test-Path $schedPath)) {
+    Write-Fail "config/schedules.json not found"
+} else {
+    try {
+        $sched = Get-Content -Raw -Encoding UTF8 $schedPath | ConvertFrom-Json
+        $validKinds = @('daily', 'daily-interval', 'weekly', 'weekly-interval', 'interval', 'once')
+        $seen = New-Object System.Collections.Generic.HashSet[string]
+        $schedFail = 0
+        foreach ($t in $sched.tasks) {
+            if ([string]::IsNullOrWhiteSpace($t.suffix)) { Write-Fail "task with empty suffix"; $schedFail++; continue }
+            if (-not $seen.Add($t.suffix)) { Write-Fail "duplicate suffix: $($t.suffix)"; $schedFail++ }
+            if ($validKinds -notcontains $t.schedule.kind) { Write-Fail "$($t.suffix): bad kind '$($t.schedule.kind)'"; $schedFail++ }
+            if ($t.manage -eq $true) {
+                $runnerAbs = Join-Path $checkRoot ($t.runner -replace '/', '\')
+                if (-not (Test-Path $runnerAbs)) { Write-Fail "$($t.suffix): runner missing ($($t.runner))"; $schedFail++ }
+            }
+        }
+        if ($schedFail -eq 0) { Write-Pass "$(@($sched.tasks).Count) task(s) valid" }
+    } catch {
+        Write-Fail "config/schedules.json failed to parse: $_"
+    }
+}
+
 # --- 4. AGENTS.md is in sync ---------------------------------------------
 Write-Section 'AGENTS.md (rendered from template)'
 $renderer = Join-Path $checkRoot '.copilot\skills\_shared\render-agents.ps1'
@@ -183,9 +209,9 @@ if ($snapshotMode) {
     } else {
         Write-Host "  (denylist: $($LeakDenylist -join ', '))" -ForegroundColor DarkGray
         $rxParts = $LeakDenylist | ForEach-Object { [regex]::Escape($_) }
-        $pattern = '(?i)(' + ($rxParts -join '|') + ')'
+        $pattern = '(?i)\b(' + ($rxParts -join '|') + ')\b'
         $hits = Get-ChildItem -Path $checkRoot -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -in '.md','.ps1','.json','.txt','.py' -and $_.FullName -notmatch '\\\.git\\' } |
+            Where-Object { $_.Extension -in '.md','.ps1','.json','.txt','.py','.html','.js' -and $_.FullName -notmatch '\\\.git\\' } |
             Select-String -Pattern $pattern -SimpleMatch:$false |
             Select-Object -First 50
         if ($hits) {

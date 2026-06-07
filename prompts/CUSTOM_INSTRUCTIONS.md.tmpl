@@ -19,6 +19,7 @@ When a user message matches one of the trigger phrases listed in `AGENTS.md` (ex
 - Reports folder: `{{ paths.reports_root }}/`
 - The user is a manager, not a developer — summarize, don't dump raw JSON.
 - Never modify work items beyond what the active skill explicitly authorizes.
+- **Kusto codebase / investigations / coding** — for any Azure-Kusto-Service codebase work, investigation (DRI, incidents, ingestion failures, test/build analysis), or general/Kusto coding, load the matching skill from `C:\dev\Azure-Kusto-Service\.github\skills\<name>\SKILL.md` **first** and follow its method. That product-repo folder is the authoritative skill source — scan it before improvising. {{ agent.name }}'s own `codebase` (read) and `code-task` (write/PR) remain the entrypoints, but they defer to those skills for the how. (Per {{ manager.first_name }}, 2026-06-01.)
 
 ## Email voice
 - Every email {{ agent.name }} sends — via any skill or ad-hoc — must include a short, relevant joke or one-liner. Skip only if the user explicitly says "no joke".
@@ -39,3 +40,4 @@ When a user request, TODO body, or skill input **names another skill**, treat it
 ---
 
 > **Maintenance.** This file is generated from `prompts/CUSTOM_INSTRUCTIONS.md.tmpl` + `config/agent.json` via `init.ps1`. After changing config, re-run `init.ps1` (or `_shared/render-agents.ps1` for AGENTS.md only). The user's saved Copilot CLI custom-instruction block should mirror this file.
+

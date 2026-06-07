@@ -20,9 +20,16 @@ The Skills table is generated from `config/skills.json` — that file is the sin
 When a user message matches one of the trigger phrases above (exactly or as a clear paraphrase), run the corresponding skill. Read the SKILL.md for that skill first, then execute.
 
 ## Defaults
+- **Working directory**: always operate from `<repo>` — the canonical main checkout. If a session is launched in a worktree (e.g. under `C:\Users\youralias\.copilot\repos\copilot-worktrees\...`), `cd` to `<repo>` as the first action of the session (before any other tool calls beyond the banner) and stay there for the rest of the session. Do not run skills, reports, or scheduled-task work from a worktree path.
 - Reports folder: `{{ paths.reports_root }}/`
 - The user is a manager, not a developer — summarize, don't dump raw JSON.
 - Never modify work items beyond what the active skill explicitly authorizes.
+- **Kusto codebase / investigations / coding** — for any Azure-Kusto-Service codebase work, investigation (DRI, incidents, ingestion failures, test/build analysis), or general/Kusto coding, load the matching skill from `C:\dev\Azure-Kusto-Service\.github\skills\<name>\SKILL.md` **first** and follow its method. That product-repo folder is the authoritative skill source — scan it before improvising. {{ agent.name }}'s own `codebase` (read) and `code-task` (write/PR) remain the entrypoints, but they defer to those skills for the how. (Per {{ manager.first_name }}, 2026-06-01.)
+- **Reading email / Teams / search / research → use WorkIQ (everywhere, reads only)** — whenever the task is to **read emails, read Teams messages, look something up, search, or research** — whether ad-hoc in chat **or inside a skill** (e.g. `inbox-watch`, `ooo-mode`, `plus-nirvana`, `inbox-investigate`) — prefer the **WorkIQ MCP** (`workiq-ask_work_iq`) as the default read/Q&A source. WorkIQ is read-only, so use it strictly for retrieval/understanding — never assume it can send, reply, move, mark-read, modify, or delete.
+  - **Writes always stay on current capabilities.** Any send/reply/post/modify (e.g. `email-team`, `post-to-teams`, Outlook COM sends, ADO updates, item stamps/moves) keeps its existing mechanism. WorkIQ only feeds the read half.
+  - **Item-handle exception (not a read of content).** Skills that must obtain a concrete item handle to perform their own write — e.g. fetching a `MailItem` by EntryID so they can stamp a `UserProperty`, mark-read, move folders, or `ReplyAll` — may still use Outlook COM for that lookup, because it is part of the write path, not content reading. Prefer WorkIQ for *what the mail/thread says*; use COM for *the handle you need to act on it*.
+  - **WhatsApp** keeps its own dedicated read pipeline (it is not an M365/Teams surface WorkIQ covers). (Per {{ manager.first_name }}, 2026-06-01.)
+- **Memory fallback** — when the `store_memory` tool fails (e.g. "a default billing entity has not been selected"), do **not** drop the fact. Append it to **`{{ paths.reports_root }}/memory/fallback-memories.md`**, mirroring the `store_memory` schema (Subject / Fact / Reason / Citations) plus the date and the failure reason. These can be replayed into `store_memory` once it works again. (Per {{ manager.first_name }}, 2026-06-01.)
 
 ## Email voice
 - Every email {{ agent.name }} sends — via any skill or ad-hoc — must include a short, relevant joke or one-liner. Skip only if the user explicitly says "no joke".
@@ -44,4 +51,5 @@ Common composition patterns:
 - `agent-todos` body says *"use your codebase skill to find the docs"* → run `codebase` Q&A / find-docs mode for the topic, embed the resulting command/snippet into the email or summary.
 - Any skill mentioning a recipient by name → consult `team-personas` for context before drafting.
 - "Reply" / "reply all" inside any TODO or request → see the reply-mode rules in `agent-todos/SKILL.md` §"Reply-mode thread search". Default is **Reply All**.
+
 

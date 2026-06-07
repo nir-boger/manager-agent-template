@@ -15,6 +15,12 @@ reports/inbox-watch/candidates-temp.json
 reports/inbox-watch/items-temp.json
 reports/inbox-watch/ready-temp.json
 reports/inbox-watch/roster-temp.json
+# Runtime scan/roster/match snapshots (regenerated every tick; not source of truth)
+reports/inbox-watch/candidates.json
+reports/inbox-watch/matched-items.json
+reports/inbox-watch/roster.json
+reports/inbox-watch/unread.json
+reports/inbox-watch/scan-*.json
 
 # WhatsApp skill — never commit any of these:
 #   - the live Chromium profile (contains WhatsApp Web session/cookies)
@@ -50,6 +56,37 @@ reports/pilates/
 .copilot/skills/team-personas/daily-summary-state.txt
 .copilot/skills/team-personas/*.log
 
+# Historical per-direct 1:1 prep files from the retired one-on-one-prep skill —
+# contain persona quotes, email subject snippets, ICM context, coaching prompts.
+# Skill removed 2026-05-13; folder retained for past artifacts. NEVER commit.
+# Also covers the new one-on-one-agenda skill's per-person agenda files
+# (reports/one-on-ones/<slug>.md) - they hold meeting talking points that
+# reference internal projects and people. Local-only by design.
+reports/one-on-ones/
+
+# one-on-one-agenda runner state (preview HTML + per-occurrence idempotency
+# stamps). Regenerated on every tick. Never commit.
+.copilot/skills/one-on-one-agenda/state/
+
+# PR-review-queue skill— sweep snapshots contain ADO PR titles and authors;
+# historical archive — pr-review-queue skill was removed 2026-05-28
+# but the existing queue files / logs are kept locally as a read-only archive.
+reports/pr-review-queue/
+reports/logs/pr-review-queue-*.log
+
+# DRI-weekly-pulse skill — runtime cache (raw email bodies, week snapshots,
+# rendered HTML). Local-only; tests use test-fixtures/ under the skill folder.
+reports/dri-pulse/
+.copilot/skills/dri-weekly-pulse/state/
+
+# Personal-todos skill — daily rendered HTML + per-day snapshot files are
+# local-only operational artifacts. The source of truth (todos.md) IS tracked.
+.copilot/skills/personal-todos/state/snapshot.json
+.copilot/skills/personal-todos/state/last-sent.txt
+.copilot/skills/personal-todos/state/last-suggest.json
+.copilot/skills/personal-todos/__pycache__/
+reports/personal-todos/daily-*.html
+
 # Connect-buddy skill — defense-in-depth.
 # The actual connect data lives OUTSIDE this repo at
 # %USERPROFILE%\.copilot\connect-buddy\ (HR-grade sensitive — `.gitignore` is
@@ -63,8 +100,74 @@ reports/connect-buddy/
 tmp/
 reports/agent-todos/current-batch.json
 
+# Transient input docs (planning spreadsheets, exports, etc.)
+reports/inputs/
+
 # Migration freeze flag — local-only kill switch used during refactors. When
 # present, side-effect helpers (Send-RunnerSummaryEmail, etc.) skip COM calls
 # and return cleanly. Activated either via this file or via
 # $env:NIRVANA_MIGRATION_MODE. Never commit.
 config/migration-mode.txt
+
+# Stray scratch JSON files from ad-hoc ADO/work-item dumps. Never commit.
+temp-items.json
+temp-*.json
+reports/semester-plan/
+
+reports/one-shots/
+
+# Runtime log/work dir — regenerated on every tick; never source of truth.
+reports/logs/
+
+# Persona hot/cold cache
+#   Cold cache: raw Cowork JSON drops, kept forever locally but contain
+#     verbatim Teams chat + email bodies — never commit.
+#   Hot cache state: JSON sidecars for ## Areas / Ledger / Collaborators
+#     counters. Derived; can always be rebuilt with run-personas-rebuild.ps1.
+reports/personas-archive/
+.copilot/skills/team-personas/people-state/
+
+# team-agenda runner state (preview HTML + per-occurrence idempotency stamps).
+# Regenerated on every tick. Never commit.
+.copilot/skills/team-agenda/state/
+
+# risk-watch runner state (per-week idempotency stamp). Runtime-only.
+.copilot/skills/risk-watch/state/
+
+# sprint-digest runner state (idempotency, per-iteration baseline, last snapshot,
+# preview HTML). Regenerated from ADO every run. Never commit.
+.copilot/skills/sprint-digest/state/
+
+# team-brief skill (DM-TeamBriefDaily / DM-TeamWeeklyHighlights) — runtime state +
+# rendered output that embed paraphrased M365 (Teams + email) content via WorkIQ.
+#   state/: enrichment.json (WorkIQ-sourced per-person Teams/email/weekly prose) +
+#     daily-sent.json / weekly-sent.json idempotency keys. Sensitive + runtime.
+#   reports/team-brief/: rendered HTML briefs that embed the same content.
+# Never commit either.
+.copilot/skills/team-brief/state/
+reports/team-brief/
+
+# Python bytecode caches (any skill).
+.copilot/skills/**/__pycache__/
+
+# Daily-capture skill (DM-DailyCapture, 18:00 IST) — runtime staging + state +
+# local handoff folder consumed by the two importers on this same machine.
+#   staging/<date>/: copilot-drafted DailySummary + per-report persona files that
+#     carry verbatim/paraphrased M365 (Teams + email) content — NEVER commit.
+#   published/{daily-summary,personas/<date>}/: local handoff drop (replaces the
+#     old OneDrive round-trip) that run-daily-summary-import.ps1 /
+#     run-personas-import.ps1 poll every 10 min — same sensitive content.
+#   state/<date>.json: per-phase/per-person idempotency markers. Derived runtime.
+reports/daily-capture/
+
+# Generated demo / promo decks (binary, easy to regenerate).
+reports/meet-nirvana.pptx
+
+# Nirvana-site skill — generated single-file HTML explorer. Rebuilt nightly by
+# DM-NirvanaSiteBuild; ~2 MB. Source of truth lives in
+# .copilot/skills/nirvana-site/{build.py,template.html}.
+reports/site/
+
+# Inbox-watch transient roster cache (Outlook GAL snapshot used between ticks
+# to avoid re-resolving every contact). Regenerated on demand.
+reports/inbox-watch/.roster-cache.xml

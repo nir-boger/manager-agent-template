@@ -8,7 +8,7 @@
 #   3. Build alias roster from team-personas/people/*.md (kebab-case -> title-case
 #      display name).
 #   4. Load (or initialize) C:\Users\youralias\.copilot\connect-buddy\manifest.json.
-#   5. Iterate Inbox: only mails from PerfnDev@microsoft.com with subject
+#   5. Iterate Inbox: only mails from someone@example.com with subject
 #      ^Connect for <Name>$.
 #   6. Per mail: strict alias resolution, parse title/period/status, content
 #      hash, manifest dedupe.
@@ -263,7 +263,7 @@ try {
         if ($m.Class -ne 43) { continue }  # 43 = olMail
         if ($m.Subject -notmatch '(?i)^Connect for\s+(.+)$') { continue }
         $smtp = Resolve-SenderSmtp -mail $m
-        if (-not $smtp -or $smtp.ToLower() -ne 'perfndev@microsoft.com') { continue }
+        if (-not $smtp -or $smtp.ToLower() -ne 'someone@example.com') { continue }
         [void]$mailsToProcess.Add($m)
     }
     Write-Log "Found $($mailsToProcess.Count) candidate Connect mails in Inbox."

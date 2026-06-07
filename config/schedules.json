@@ -1,0 +1,461 @@
+{
+  "$schema_note": "Declarative source of truth for Nirvana's DM-* scheduled tasks. Reconciled by tools/sync-scheduled-tasks.ps1. Task name = <tasks.prefix from config/agent.json>-<suffix>. 'manage:false' entries are inventoried for auditability but owned by another generator (pilates register-tasks.ps1) or are one-shot ephemeral sends; sync never touches them.",
+  "launcher": {
+    "exec": "wscript.exe",
+    "wrapper": ".copilot/skills/run-hidden.vbs"
+  },
+  "defaults": {
+    "execution_time_limit": "PT10M",
+    "logon_type": "Interactive",
+    "run_level": "Limited"
+  },
+  "schedule_kinds": {
+    "daily": "Once per day at 'time'.",
+    "daily-interval": "Daily anchor at 'time', then repeats every 'every' for 'duration' (all-day polling).",
+    "weekly": "On 'days' at 'time'.",
+    "weekly-interval": "On 'days' at 'time', then repeats every 'every' for 'duration'.",
+    "interval": "One anchor at 'time', then repeats every 'every' for 'duration' (24/7 polling)."
+  },
+  "tasks": [
+    {
+      "suffix": "DailyCapture",
+      "skill": "daily-capture",
+      "runner": ".copilot/skills/run-daily-capture.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "execution_time_limit": "PT45M",
+      "schedule": {
+        "kind": "daily",
+        "time": "18:00"
+      }
+    },
+    {
+      "suffix": "TeamBriefDaily",
+      "skill": "team-brief",
+      "runner": ".copilot/skills/run-team-brief.ps1",
+      "args": [
+        "-Mode",
+        "daily"
+      ],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily",
+        "time": "18:30"
+      }
+    },
+    {
+      "suffix": "TeamWeeklyHighlights",
+      "skill": "team-brief",
+      "runner": ".copilot/skills/run-team-brief.ps1",
+      "args": [
+        "-Mode",
+        "weekly"
+      ],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "weekly",
+        "time": "17:00",
+        "days": [
+          "Thursday"
+        ]
+      }
+    },
+    {
+      "suffix": "DailySummaryImport",
+      "skill": "personal-todos-import",
+      "runner": ".copilot/skills/run-daily-summary-import.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily-interval",
+        "time": "00:00",
+        "every": "PT10M",
+        "duration": "P1D"
+      }
+    },
+    {
+      "suffix": "InboxWatch",
+      "skill": "inbox-watch",
+      "runner": ".copilot/skills/run-inbox-watch.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily-interval",
+        "time": "00:00",
+        "every": "PT5M",
+        "duration": "P1D"
+      }
+    },
+    {
+      "suffix": "NirvanaAgentTodos",
+      "skill": "agent-todos",
+      "runner": ".copilot/skills/run-agent-todos.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "00:00",
+        "every": "PT5M",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "NirvanaSiteBuild",
+      "skill": "nirvana-site",
+      "runner": ".copilot/skills/run-nirvana-site.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily",
+        "time": "06:00"
+      }
+    },
+    {
+      "suffix": "OneOnOneAgenda",
+      "skill": "one-on-one-agenda",
+      "runner": ".copilot/skills/run-one-on-one-agenda.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "15:25",
+        "every": "PT5M",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "OneOnOnePrep",
+      "skill": "one-on-one-prep",
+      "runner": ".copilot/skills/run-one-on-one-prep.ps1",
+      "args": [
+        "-SendHoursMin",
+        "14",
+        "-SendHoursMax",
+        "42",
+        "-PerTickCap",
+        "20"
+      ],
+      "enabled": false,
+      "manage": true,
+      "schedule": {
+        "kind": "daily",
+        "time": "08:00"
+      }
+    },
+    {
+      "suffix": "PersonalTodosDaily",
+      "skill": "personal-todos",
+      "runner": ".copilot/skills/run-personal-todos-daily.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily",
+        "time": "07:00"
+      }
+    },
+    {
+      "suffix": "PersonalTodosImport",
+      "skill": "personal-todos-import",
+      "runner": ".copilot/skills/run-personal-todos-import.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "00:00",
+        "every": "PT5M",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "PersonasImport",
+      "skill": "team-personas",
+      "runner": ".copilot/skills/run-personas-import.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily-interval",
+        "time": "00:00",
+        "every": "PT10M",
+        "duration": "P1D"
+      }
+    },
+    {
+      "suffix": "PilatesAuto-mon-10",
+      "skill": "pilates",
+      "runner": ".copilot/skills/pilates/pilates.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": false,
+      "schedule": {
+        "kind": "weekly",
+        "time": "10:59",
+        "days": [
+          "Tuesday"
+        ]
+      },
+      "note": "Managed by examples/personal/pilates/register-tasks.ps1; not reconciled here."
+    },
+    {
+      "suffix": "PilatesAuto-wed-10",
+      "skill": "pilates",
+      "runner": ".copilot/skills/pilates/pilates.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": false,
+      "schedule": {
+        "kind": "weekly",
+        "time": "10:59",
+        "days": [
+          "Thursday"
+        ]
+      },
+      "note": "Managed by examples/personal/pilates/register-tasks.ps1; not reconciled here."
+    },
+    {
+      "suffix": "PlusNirvana",
+      "skill": "plus-nirvana",
+      "runner": ".copilot/skills/run-plus-nirvana.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "08:56",
+        "every": "PT5M",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "PrBaselineReseed",
+      "skill": "pr-review-request",
+      "runner": ".copilot/skills/seed-baseline.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "execution_time_limit": "PT30M",
+      "schedule": {
+        "kind": "weekly",
+        "time": "07:15",
+        "days": [
+          "Sunday"
+        ]
+      }
+    },
+    {
+      "suffix": "PrReviewAssistant",
+      "skill": "pr-review-assistant",
+      "runner": ".copilot/skills/run-pr-review-assistant.ps1",
+      "args": [],
+      "enabled": false,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "18:15",
+        "every": "PT5M",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "PrReviewRequest",
+      "skill": "pr-review-request",
+      "runner": ".copilot/skills/run-pr-review-request.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "09:38",
+        "every": "PT5M",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "RefreshDirectsContext",
+      "skill": "team-personas",
+      "runner": ".copilot/skills/run-refresh-directs-context.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "06:00",
+        "every": "PT6H",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "Reminders",
+      "skill": "reminders",
+      "runner": ".copilot/skills/run-reminders.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "11:26",
+        "every": "PT5M",
+        "duration": "P3650D"
+      }
+    },
+    {
+      "suffix": "RiskWatchPulse",
+      "skill": "risk-watch",
+      "runner": ".copilot/skills/run-risk-watch-pulse.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "weekly",
+        "time": "08:45",
+        "days": [
+          "Sunday"
+        ]
+      }
+    },
+    {
+      "suffix": "SemesterPlanReport",
+      "skill": "semester-plan-report",
+      "runner": ".copilot/skills/run-semester-plan-report.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "weekly",
+        "time": "16:00",
+        "days": [
+          "Friday"
+        ]
+      }
+    },
+    {
+      "suffix": "SprintCreate",
+      "skill": "sprint-create",
+      "runner": ".copilot/skills/run-sprint-create.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily",
+        "time": "09:00"
+      }
+    },
+    {
+      "suffix": "SprintDailyReport",
+      "skill": "sprint-report-daily",
+      "runner": ".copilot/skills/run-sprint-report-daily.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "weekly-interval",
+        "time": "08:30",
+        "days": [
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday"
+        ],
+        "every": "PT10M",
+        "duration": "PT14H"
+      }
+    },
+    {
+      "suffix": "SprintDigest",
+      "skill": "sprint-digest",
+      "runner": ".copilot/skills/run-sprint-digest.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "execution_time_limit": "PT20M",
+      "schedule": {
+        "kind": "weekly",
+        "time": "09:00",
+        "days": [
+          "Sunday"
+        ]
+      }
+    },
+    {
+      "suffix": "TeamAgendaReminder",
+      "skill": "team-agenda",
+      "runner": ".copilot/skills/run-team-agenda-reminder.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "weekly",
+        "time": "08:00",
+        "days": [
+          "Tuesday"
+        ]
+      }
+    },
+    {
+      "suffix": "TeamMeetingReminder",
+      "skill": "team-agenda",
+      "runner": ".copilot/skills/run-team-meeting-reminder.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "weekly",
+        "time": "14:00",
+        "days": [
+          "Wednesday"
+        ]
+      }
+    },
+    {
+      "suffix": "TeamMilestonesDaily",
+      "skill": "team-milestones",
+      "runner": ".copilot/skills/run-team-milestones-daily.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily-interval",
+        "time": "00:00",
+        "every": "PT10M",
+        "duration": "P1D"
+      }
+    },
+    {
+      "suffix": "TeamVacationWatch",
+      "skill": "team-vacation-watch",
+      "runner": ".copilot/skills/run-team-vacation-watch.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily-interval",
+        "time": "08:00",
+        "every": "PT10M",
+        "duration": "PT12H"
+      }
+    },
+    {
+      "suffix": "LogsCleanup",
+      "skill": "logs-cleanup",
+      "runner": ".copilot/skills/run-logs-cleanup.ps1",
+      "args": [],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "daily",
+        "time": "05:30"
+      }
+    }
+  ]
+}

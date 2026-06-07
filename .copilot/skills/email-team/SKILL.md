@@ -4,7 +4,7 @@
 Send an email **from the signed-in user's Outlook profile** to the **Your Team** alias (or other recipients) via **Outlook COM automation**. No tokens, no env vars, no app registration — the email sends through the running Outlook client exactly as if you clicked *Send* yourself.
 
 ## Fixed context
-- Default recipient (To): `kdms@microsoft.com`
+- Default recipient (To): `team@example.com`
 - Sender: whichever account is configured in the running Outlook profile (= you)
 - Log folder: `<repo>\reports\email\`
 - Log file: `YYYY-MM-DD.md` (append one line per send)
@@ -26,13 +26,13 @@ if ($isElevated) {
 ## Optional env vars
 | Variable | Purpose |
 |---|---|
-| `EMAIL_TEAM_ALIAS` | Override default To (defaults to `kdms@microsoft.com`) |
+| `EMAIL_TEAM_ALIAS` | Override default To (defaults to `team@example.com`) |
 | `EMAIL_DEFAULT_CC` | Optional CC, comma-separated |
 
 ## Trigger → action mapping
 | User intent | Action |
 |---|---|
-| "email the team", "send an email to the team", "email kdms", "mail out the daily report" | **send** to `kdms@microsoft.com` (or `$env:EMAIL_TEAM_ALIAS`) |
+| "email the team", "send an email to the team", "email team", "mail out the daily report" | **send** to `team@example.com` (or `$env:EMAIL_TEAM_ALIAS`) |
 | "email <address>: <subject> — <body>" | **send** to the supplied address |
 | "email the daily report" | **send** with today's `<repo>\reports\daily\YYYY-MM-DD.md` rendered as HTML |
 
@@ -95,6 +95,14 @@ if ($isElevated) {
      [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ol)   | Out-Null
      ```
 
+   > **Why not WorkIQ MCP?** We registered the `workiq` and `workiq-preview` MCP servers on 2026-05-29 hoping to swap COM for a Graph-backed send. They do not yet expose a send tool. Evidence (don't re-investigate from scratch):
+   >
+   > - **Direct JSON-RPC `tools/list` probe** against `@microsoft/workiq@preview` 0.5.0-preview2 (binary `0.5.0.24904`) returns exactly 4 tools: `accept_eula`, `list_agents`, `ask_work_iq`, `get_debug_link`. **All read-only.** `@latest` (0.4.1) exposes a strict subset (no `list_agents`).
+   > - The official `microsoft/work-iq` `plugins/workiq-preview/skills/workiq-preview/SKILL.md` documents `do_action_work_iq` (sendMail/forward/accept), `create_entity_work_iq`, `update_entity_work_iq`, `fetch_work_iq`, `search_paths_work_iq`, `get_schema_work_iq`, `call_function_work_iq`, `fetch_blob_work_iq`, `upload_blob_work_iq` — **none of these are registered by the published preview binary**. Repo docs are ahead of npm.
+   > - `ask_work_iq` is agentic-Q&A only and refuses writes by policy (verified — answered *"I do not have the ability to directly execute Microsoft Graph write APIs like sendMail."*). Even if it accepted them, it's the wrong path; the structured `do_action_work_iq` is what the docs say to use, and it isn't shipped.
+   >
+   > **How to re-verify** when revisiting (≈30s): run `C:\Users\youralias\.copilot\session-state\4b90174f-6619-4c48-9826-c70336d36f78\files\probe-workiq-tools.ps1`. If `do_action_work_iq` appears in the tools list, ship the WorkIQ-first send path (5a WorkIQ → 5b COM fallback) using `actionUrl: /me/sendMail` and `jsonBody` (JSON-encoded string, escape inner quotes). Until then this skill is intentionally Outlook-COM-only.
+
 6. **Log.** Append one line to `<repo>\reports\email\YYYY-MM-DD.md`:
    ```
    - <HH:mm> to=<csv> cc=<csv> subject="<subject>" attachments=<N> status=sent  <optional:sourceFile>
@@ -105,7 +113,7 @@ if ($isElevated) {
    `Email sent to <N> recipient(s): "<subject>"  (via Outlook)`
 
 ## What NOT to do
-- Do **not** attempt Microsoft Graph or SMTP fallbacks — Graph requires admin consent that the user doesn't have, SMTP is disabled by tenant policy. This skill is intentionally Outlook-COM-only.
+- Do **not** attempt Microsoft Graph or SMTP fallbacks. Graph would require admin consent that the user doesn't have (and the WorkIQ MCP wrapper, which would carry that consent, does not yet expose a write/sendMail tool as of 2026-05-29 — see the note in step 5); SMTP is disabled by tenant policy. This skill is intentionally Outlook-COM-only.
 - Do **not** auto-start Outlook if it isn't running — abort and tell the user.
 - Do **not** send to any address the user didn't ask for — no silent CC, no "FYI" additions.
 - Do **not** change the sending account (`SendUsingAccount`) unless the user explicitly requested it.

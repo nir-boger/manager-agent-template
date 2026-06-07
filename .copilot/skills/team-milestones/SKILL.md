@@ -4,8 +4,8 @@ Daily morning reminder of team birthdays and work anniversaries. Reads dates fro
 
 ## Fixed context
 
-- **Data source**: `<repo>\.copilot\skills\team-personas\people\*.md` &mdash; the `## Employment` block, lines `**Birthday:** M/D` and `**Hired:** YYYY-MM-DD`. Date convention is **MM/DD** for `Birthday` (e.g., `4/15` = April 15; matches the rest of the personas) and **YYYY-MM-DD** for `Hired`.
-- **Recipient**: `youralias@microsoft.com` (Nir himself &mdash; this is a personal heads-up, not a team broadcast).
+- **Data source**: `<repo>\.copilot\skills\team-personas\people\*.md` &mdash; the `## Employment` block, lines `**Birthday:** M/D` and `**Hired:** YYYY-MM-DD`. Date convention is **MM/DD** for `Birthday` (e.g., `4/15` = April 15; matches the rest of the personas) and **YYYY-MM-DD** for `Hired`. **Nirvana counts too** &mdash; her persona file (`people/nirvana.md`) carries `Birthday: 4/23` and `Hired: 2026-04-23`, so her annual milestones fire through the same parser as the humans.
+- **Recipient**: `someone@example.com` (Nir himself &mdash; this is a personal heads-up, not a team broadcast).
 - **Subject prefix**: `[Nirvana]` so `inbox-watch` ignores the email.
 - **Signature**: `Default` variant via `_shared/signature.ps1`. This is user-facing content, **not** a runner heartbeat &mdash; do not use the `RunnerHeartbeat` variant.
 - **Joke**: yes, one short joke per email-voice rules. Skip with `NOJOKE`.
@@ -37,12 +37,12 @@ Anniversary years are computed as `today.Year - hired.Year` (or `tomorrow.Year -
 ```
 <p>Today (Sat, May 09) - 1 milestone:</p>
 <ul>
-  <li><strong>Ran Ben Shmuel</strong> - 14-year work anniversary (hired 2012-05-09)</li>
+  <li><strong>Teammate9</strong> - 14-year work anniversary (hired 2012-05-09)</li>
 </ul>
 
 <p>Tomorrow heads-up (Sun, May 10) - 1 milestone:</p>
 <ul>
-  <li><strong>Maya Marom</strong> - 2-year work anniversary (hired 2024-05-15)</li>
+  <li><strong>Teammate4</strong> - 2-year work anniversary (hired 2024-05-15)</li>
 </ul>
 
 <p style="color:#555;font-style:italic">&lt;short joke&gt;</p>

@@ -9,7 +9,7 @@
 | `Default` | Most emails: `email-team`, `agent-todos`, ad-hoc Outlook COM sends, manual email composition. | `Sent on Nir's behalf by Nirvana - Nir's agent.` |
 | `InboxAuto` | `inbox-watch` auto-replies (mandatory disclosure - the recipient must know an autoresponder spoke). | `Sent on Nir's behalf by Nirvana - Nir's agent. Nir is on the thread; reply directly if I got it wrong.` |
 | `RunnerHeartbeat` | `_runner-email.ps1` heartbeats from scheduled tasks (DailySummary import, persona import, etc.) - low-signal, manager-internal. | `Automated heartbeat from Nirvana - Nir's agent. Source: <runner> on <YYYY-MM-DD HH:mm> IST.` |
-| `WhatsAppGroupHe` | Plain-text Hebrew variant for the **Your Team Group** WhatsApp group (mandatory in that group only - other WhatsApp chats remain unsigned per the `whatsapp` skill's rail #6). Rendered as the last line of the message body. | `- נירוונה, הסוכן של ניר` |
+| `WhatsAppGroupHe` | Plain-text Hebrew variant for **all** WhatsApp messages — every recipient, 1:1 or group, including Partner (saved Nir preference 2026-05-06; was originally Kusto-DM-Team-only, hence the legacy variant name). Rendered as the last line of the message body. Honors `NOSIG`. | `- נירוונה, הסוכן של ניר` |
 
 Plain "Nir's agent" - never add team/role qualifiers (e.g. "his Your Team agent", "his ADO agent", "his personal agent"). The persona is Nirvana, the principal is Nir; nothing else belongs in the signature.
 

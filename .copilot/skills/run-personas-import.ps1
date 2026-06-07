@@ -1,24 +1,26 @@
-# Imports daily persona drops from OneDrive into the team-personas skill.
+# Imports daily persona drops from the local daily-capture handoff folder into
+# the team-personas skill.
 #
-# Source pattern (Cowork drops raw per-persona data per day):
-#   C:\Users\youralias\OneDrive\YourAgent\Personas\<YYYY-MM-DD>\<File>.{json,md}
+# Source pattern (run-daily-capture.ps1 publishes raw per-persona data per day):
+#   <agent-root>\reports\daily-capture\published\personas\<YYYY-MM-DD>\<File>.{json,md}
+#   (configurable via paths.daily_capture_personas in config/agent.json)
 #
 # Two file formats supported (auto-detected by extension):
 #
-# A) **JSON** (current Cowork output) — schema:
+# A) **JSON** (legacy Cowork shape, still supported) — schema:
 #       { "format":"markdown",
 #         "person_file":"<DisplayName>.md",
 #         "capture_window_start":"...", "capture_window_end":"...",
 #         "content":"<markdown blob with Teams Messages + Emails sections>" }
-#    Filename convention is PascalCase_Underscore (e.g. Asaf_Mahlev.json,
-#    Ran_BenShmuel.json). The runner converts it to kebab-case (asaf-mahlev,
-#    ran-ben-shmuel) by splitting on underscore AND on CamelCase boundaries.
+#    Filename convention is PascalCase_Underscore (e.g. Teammate1.json,
+#    Teammate9.json). The runner converts it to kebab-case (Teammate1-Teammate1,
+#    ran-ben-Teammate9) by splitting on underscore AND on CamelCase boundaries.
 #    Behavior: mines behavioral quotes + top email subjects from the markdown
 #    content and appends idempotent dated lines to people/<alias>.md
-#    ## Daily observations. Does NOT overwrite the persona template — Cowork
-#    is the collector, Nirvana is the analyst.
+#    ## Daily observations. Does NOT overwrite the persona template — the
+#    daily-capture producer is the collector, Nirvana is the analyst.
 #
-# B) **Markdown** (legacy / future synthesized drops) — full persona template.
+# B) **Markdown** (current daily-capture output / synthesized drops) — full persona template.
 #    Behavior: overwrites people/<alias>.md while preserving curated
 #    ## Notes and ## Daily observations sections (existing-first, dedupe).
 #
@@ -41,7 +43,13 @@ $personasSkill = Join-Path $AgentRoot '.copilot\skills\team-personas'
 $peopleDir     = Resolve-AgentPath (Get-AgentField -Path 'paths.team_personas_people' -Default '.copilot/skills/team-personas/people' -Config $AgentConfig) -Config $AgentConfig
 $overview      = Join-Path $personasSkill 'team-overview.md'
 $sourcesFile   = Join-Path $personasSkill 'sources.txt'
-$personasRoot  = Join-Path $env:USERPROFILE 'OneDrive\YourAgent\Personas'
+$personasRoot  = Resolve-AgentPath (Get-AgentField -Path 'paths.daily_capture_personas' -Default 'reports/daily-capture/published/personas' -Config $AgentConfig) -Config $AgentConfig
+
+# Hot/cold cache plumbing (Areas of ownership / Project ledger / Frequent collaborators).
+. (Join-Path $personasSkill 'persona-mining.ps1')
+$stateDir   = Get-PersonaStateDir   -PersonasSkillRoot $personasSkill
+$archiveDir = Get-PersonaArchiveDir -AgentRoot $AgentRoot
+$repoVocab  = Get-PersonaRepoVocab  -PersonasSkillRoot $personasSkill
 
 $logFile = Join-Path $LogDir ("personas-import-" + (Get-Date -Format 'yyyy-MM-dd') + ".log")
 
@@ -95,19 +103,8 @@ function Merge-SectionLines {
 # --- JSON-drop helpers ----------------------------------------------------
 
 # Convert Cowork's PascalCase_Underscore filename to our kebab-case alias.
-# "Asaf_Mahlev.json"     -> "asaf-mahlev"
-# "Ran_BenShmuel.json"   -> "ran-ben-shmuel"   (splits CamelCase too)
-# "Maya_Feuerstein.md"   -> "maya-feuerstein"
-function Convert-FilenameToAlias {
-    param([string]$FileName)
-    $base = $FileName -replace '\.(md|json)$',''
-    $parts = $base -split '_' | Where-Object { $_.Trim() -ne '' }
-    $expanded = foreach ($p in $parts) {
-        # split CamelCase: "BenShmuel" -> "Ben-Shmuel"
-        ($p -creplace '(?<=[a-z])(?=[A-Z])', '-')
-    }
-    return ((($expanded -join '-') -replace '-+', '-').Trim('-')).ToLowerInvariant()
-}
+# Canonical implementation lives in team-personas/persona-mining.ps1 (so the
+# rebuild runner and any future tooling can call it too). Dot-sourced above.
 
 # Behavioral-signal regex pool (Hebrew + English). Patterns must match a single
 # blockquote line (lines starting with "> ") in the markdown content.
@@ -196,9 +193,8 @@ try {
         exit 0
     }
 
-    # Note: we intentionally do NOT sweep empty dated folders. OneDrive Files-On-Demand
-    # re-pulls cloud-side placeholders within seconds of any local delete, so the sweep
-    # would just churn. Empty folders are harmless - the script ignores them.
+    # Note: we intentionally do NOT sweep empty dated folders. They are harmless -
+    # the script ignores any dated folder that has no .md/.json files.
 
     # Find every <date>/ folder under the Personas root that has at least one .md OR .json file.
     $datedFolders = Get-ChildItem $personasRoot -Directory -ErrorAction SilentlyContinue | Where-Object {
@@ -211,7 +207,7 @@ try {
     }
 
     $importedAny = $false
-    $totals = [pscustomobject]@{ Files = 0; Folders = 0; Errors = 0; Behavioral = 0; Topics = 0; SkippedNoFile = 0 }
+    $totals = [pscustomobject]@{ Files = 0; Folders = 0; Errors = 0; Behavioral = 0; Topics = 0; SkippedNoFile = 0; AreaMentions = 0; UniqueAreas = 0; CollabMentions = 0 }
     $aliasesImported = New-Object System.Collections.Generic.HashSet[string]
 
     foreach ($folder in $datedFolders) {
@@ -234,7 +230,25 @@ try {
                         $totals.Behavioral += $r.Behavioral
                         $totals.Topics     += $r.Topic
                         if ($r.Behavioral -gt 0 -or $r.Topic -gt 0) { [void]$aliasesImported.Add($r.Alias) }
-                        Write-Log "  $($r.Alias): behavioral=$($r.Behavioral) topic=$($r.Topic)"
+
+                        # Hot-cache mining: Areas / Ledger / Collaborators.
+                        try {
+                            $personPath = Join-Path $peopleDir ($r.Alias + '.md')
+                            $mineResult = Invoke-PersonaMineForDrop `
+                                -JsonPath   $f.FullName `
+                                -Alias      $r.Alias `
+                                -DropDate   $folderDate `
+                                -StateDir   $stateDir `
+                                -PersonPath $personPath `
+                                -RepoVocab  $repoVocab
+                            $totals.AreaMentions   += [int]$mineResult.Areas
+                            $totals.UniqueAreas    += [int]$mineResult.UniqueAreas
+                            $totals.CollabMentions += [int]$mineResult.Collaborators
+                            [void]$aliasesImported.Add($r.Alias)
+                            Write-Log ("  {0}: behavioral={1} topic={2} areas={3} (unique={4}) collab={5}" -f $r.Alias, $r.Behavioral, $r.Topic, $mineResult.Areas, $mineResult.UniqueAreas, $mineResult.Collaborators)
+                        } catch {
+                            Write-Log "  WARN mining $($r.Alias): $($_.Exception.Message)"
+                        }
                     }
                     continue
                 }
@@ -275,6 +289,17 @@ try {
                 if ($mergedDaily) { [void]$sb.Append($mergedDaily); [void]$sb.Append("`r`n") }
 
                 Set-Content -Path $dest -Value $sb.ToString() -Encoding UTF8 -NoNewline:$false
+
+                # Canonicalize the H1 right after the write so the upstream
+                # Cowork wording (e.g. "Working-Style Persona: Teammate1")
+                # never leaks into the site sidebar. Mirrors the same call
+                # in Write-PersonaSections for the JSON branch.
+                $h1Content = Get-Content $dest -Raw -Encoding UTF8
+                $h1Fixed   = Set-CanonicalPersonaH1 -Content $h1Content -Alias $alias
+                if ($h1Fixed -ne $h1Content) {
+                    Set-Content -Path $dest -Value $h1Fixed -Encoding UTF8 -NoNewline:$false
+                }
+
                 $totals.Files++
                 [void]$aliasesImported.Add($alias)
 
@@ -291,16 +316,33 @@ try {
 
         if ($folderOk) {
             try {
-                Remove-Item $folderPath -Recurse -Force
-                Write-Log "Deleted source folder $folderPath."
+                # Cold-cache archive: move files to reports/personas-archive/<date>/
+                # (de-duplicate by appending HHmmss suffix if a file with the
+                # same name already exists -- happens when the producer re-drops
+                # the same day). Once the dated folder is empty, remove it
+                # locally; the handoff folder is local, so the delete is clean
+                # (no cloud-side resurrection to defend against).
+                $archiveDate = Join-Path $archiveDir $folderDate
+                New-Item -ItemType Directory -Force -Path $archiveDate | Out-Null
+                foreach ($af in (Get-ChildItem $folderPath -File -ErrorAction SilentlyContinue)) {
+                    $dest = Join-Path $archiveDate $af.Name
+                    if (Test-Path $dest) {
+                        $base = [System.IO.Path]::GetFileNameWithoutExtension($af.Name)
+                        $ext  = $af.Extension
+                        $dest = Join-Path $archiveDate ("{0}.{1}{2}" -f $base, (Get-Date -Format 'HHmmss'), $ext)
+                    }
+                    Move-Item -Path $af.FullName -Destination $dest -Force
+                }
+                Remove-Item $folderPath -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Log "Archived source folder to $archiveDate (and removed $folderPath)."
                 $totals.Folders++
                 $importedAny = $true
-                $logEntry = '# {0} imported {1} persona file(s) from {2} (date {3}); behavioral={4} topics={5} skipped={6}; source folder deleted after import.' -f (Get-Date -Format 'yyyy-MM-dd HH:mm'), $files.Count, $folderPath, $folderDate, $totals.Behavioral, $totals.Topics, $totals.SkippedNoFile
+                $logEntry = '# {0} imported {1} persona file(s) from {2} (date {3}); behavioral={4} topics={5} areas={6} collab={7} skipped={8}; archive: {9}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm'), $files.Count, $folderPath, $folderDate, $totals.Behavioral, $totals.Topics, $totals.AreaMentions, $totals.CollabMentions, $totals.SkippedNoFile, $archiveDate
                 Add-Content -Path $sourcesFile -Encoding UTF8 -Value $logEntry
             }
             catch {
                 $totals.Errors++
-                Write-Log ("ERROR deleting " + $folderPath + ": " + $_.Exception.Message)
+                Write-Log ("ERROR archiving " + $folderPath + ": " + $_.Exception.Message)
             }
         }
         else {
@@ -322,18 +364,19 @@ try {
         }
     }
 
-    Write-Log "Done. Files=$($totals.Files) Folders=$($totals.Folders) Behavioral=$($totals.Behavioral) Topics=$($totals.Topics) SkippedNoFile=$($totals.SkippedNoFile) Errors=$($totals.Errors)."
+    Write-Log "Done. Files=$($totals.Files) Folders=$($totals.Folders) Behavioral=$($totals.Behavioral) Topics=$($totals.Topics) Areas=$($totals.AreaMentions) Collab=$($totals.CollabMentions) SkippedNoFile=$($totals.SkippedNoFile) Errors=$($totals.Errors)."
 
     # --- End-of-run summary email (only when work happened or errors occurred) ----
     if ($importedAny -or $totals.Errors -gt 0) {
         . (Join-Path $PSScriptRoot '_runner-email.ps1')
 
         $aliases = @($aliasesImported | Sort-Object)
-        $subjectSuffix = "files=$($totals.Files), behavioral=$($totals.Behavioral), topics=$($totals.Topics), errors=$($totals.Errors)"
+        $subjectSuffix = "files=$($totals.Files), behavioral=$($totals.Behavioral), topics=$($totals.Topics), areas=$($totals.AreaMentions), collab=$($totals.CollabMentions), errors=$($totals.Errors)"
 
         $bodyParts = New-Object System.Collections.ArrayList
         [void]$bodyParts.Add("<p><b>Imported:</b> $($totals.Files) persona file(s) from $($totals.Folders) dated folder(s).</p>")
-        [void]$bodyParts.Add("<p><b>Signal mined:</b> $($totals.Behavioral) behavioral quote(s), $($totals.Topics) topic line(s).</p>")
+        [void]$bodyParts.Add("<p><b>Signal mined:</b> $($totals.Behavioral) behavioral quote(s), $($totals.Topics) topic line(s), $($totals.AreaMentions) area mention(s), $($totals.CollabMentions) collaborator mention(s).</p>")
+        [void]$bodyParts.Add("<p><b>Cold cache:</b> raw drops archived to <code>reports/personas-archive/&lt;date&gt;/</code> (never deleted).</p>")
         if ($aliases.Count -gt 0) {
             [void]$bodyParts.Add("<p><b>Aliases refreshed:</b> " + ($aliases -join ', ') + "</p>")
         }
@@ -346,11 +389,11 @@ try {
         [void]$bodyParts.Add("<p style='color:#888;font-size:12px'>Log: <code>$logFile</code></p>")
 
         $jokes = @(
-            "Personas refreshed. Hebrew quotes preserved; manipulation off, signal on.",
-            "Cowork drops the bytes, Nirvana drops the insight. Symbiosis.",
-            "Today in 'who said what?': now with verbatim quotes and zero paraphrase.",
-            "Behavioral guardrails on. Mind reading still off - by design.",
-            "Another day, another batch of stated-position quotes catalogued."
+            "Personas refreshed. Hot cache stocked; cold cache filed; mind reading still off.",
+            "Areas of ownership counted, collaborators tallied. The persona file finally remembers who works on what.",
+            "Cowork drops the raw, Nirvana shelves the cold and stocks the hot. Cache hierarchy, baby.",
+            "Hebrew quotes preserved; WIT counters incremented; nothing diagnostic, nothing manipulative.",
+            "Another day of evidence, neatly accreted. The persona slowly becomes itself."
         )
 
         [void](Send-RunnerSummaryEmail `

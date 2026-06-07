@@ -22,6 +22,25 @@ $subjectPrefix  =  Get-AgentField -Path 'agent.mail_subject_prefix'  -Default '[
 $triggerAliases =  Get-AgentField -Path 'agent.trigger_aliases'      -Default @('nirvana','@nirvana')     -Config $cfg
 $reportsRoot    =  Get-AgentField -Path 'paths.reports_root'         -Default 'reports'                   -Config $cfg
 $personasRel    =  Get-AgentField -Path 'paths.team_personas_people' -Default '.copilot/skills/team-personas/people' -Config $cfg
+$pythonExe      =  Get-AgentField -Path 'paths.python_exe'           -Default 'python'                    -Config $cfg
+
+# personal-todos auto-add wiring: every deferred-to-Nir reply also appends a
+# follow-up PT-NNN row so the mail (after being moved to Kusto\Co-Workers) is
+# not forgotten. See inbox-watch/SKILL.md security-scope write #7 and §10b.
+$todosFile  = Join-Path (Resolve-AgentPath $reportsRoot -Config $cfg) 'personal-todos\todos.md'
+$addItemPy  = Join-Path $PSScriptRoot '..\personal-todos\add-item.py'
+
+function Format-PtTitle {
+    param([string]$FirstName, [string]$Subject)
+    $s = $Subject
+    if (-not $s) { return "Follow up with $FirstName on their latest mail" }
+    $s = $s -replace '^\s*(?i)(re|fwd|fw)\s*:\s*', ''
+    $s = $s -replace '^\s*\[Nirvana\]\s*-?\s*', ''
+    $s = ($s -replace '\s+', ' ').Trim()
+    if (-not $s) { return "Follow up with $FirstName on their latest mail" }
+    if ($s.Length -gt 120) { $s = $s.Substring(0, 117).TrimEnd() + '...' }
+    return "Follow up with $FirstName on: $s"
+}
 
 # Build the trigger regexes from agent.trigger_aliases:
 #   - Bareword aliases (e.g. "nirvana") become \b<escaped>\b.
@@ -77,7 +96,7 @@ foreach ($pf in $personaFiles) {
     # Parse display name
     $displayName = ''
     if ($content -match '(?m)^#\s+(.+)$') {
-        $displayName = $matches[1] -replace 'Working-Style Persona:\s*', '' -replace 'â€"', '-'
+        $displayName = $matches[1] -replace 'Working-Style Persona:\s*', '' -replace '—', '-'
     }
     
     # Parse email
@@ -119,7 +138,7 @@ foreach ($pf in $personaFiles) {
     }
 }
 
-Write-Output "✓ Roster: $($roster.Count) direct reports"
+Write-Output "OK Roster: $($roster.Count) direct reports"
 
 # Read unread inbox items (last 24h only)
 Write-Output "Scanning inbox..."
@@ -338,6 +357,7 @@ foreach ($m in $candidates) {
         
         # Classify (simplified for now - defer to Nir)
         $class = 'general'
+        $wasDeferredToNir = $true  # Every successful send here uses the §10b fallback today.
         
         # Use deferred-to-manager fallback for safety
         $firstName  = $match.FirstName
@@ -405,20 +425,57 @@ foreach ($m in $candidates) {
             
             Write-Output "✅ SENT + MOVED to $filed"
             
+            # Auto-add a follow-up todo so Nir doesn't forget about the mail
+            # now that it's been moved out of Inbox. Only fires on deferred-to-Nir
+            # replies (§10b) — substantive auto-answers don't need a follow-up.
+            # Skipped in migration mode to avoid polluting the live todo list.
+            $todoPtId = $null
+            if ($wasDeferredToNir -and (Test-Path $todosFile) -and (Test-Path $addItemPy) -and -not (Test-MigrationMode)) {
+                try {
+                    $ptTitle = Format-PtTitle -FirstName $firstName -Subject $subject
+                    $preambleSnippet = ($preamble -replace '\s+', ' ').Trim()
+                    if ($preambleSnippet.Length -gt 180) { $preambleSnippet = $preambleSnippet.Substring(0, 177) + '...' }
+                    $ptNotes  = "From $($match.DisplayName) <$senderSmtpLower>; auto-replied $($now.ToString('yyyy-MM-dd HH:mm')); mail moved to Kusto\Co-Workers.<br>What they asked: $preambleSnippet"
+                    $pyArgs   = @(
+                        $addItemPy,
+                        '--todos-file', $todosFile,
+                        '--title',      $ptTitle,
+                        '--category',   'work',
+                        '--notes',      $ptNotes
+                    )
+                    $ptStdout = & $pythonExe @pyArgs 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        $firstLine = ($ptStdout | Select-Object -First 1) -as [string]
+                        if ($firstLine -match '^(PT-\d{3})\b') {
+                            $todoPtId = $Matches[1]
+                            Write-Output "  ✓ Added follow-up todo: $todoPtId"
+                        } else {
+                            Write-Output "  ⚠️ add-item.py succeeded but PT-NNN not parsed from: $firstLine"
+                        }
+                    } else {
+                        Write-Output "  ⚠️ add-item.py exit=$LASTEXITCODE; output: $(($ptStdout | Out-String).Trim())"
+                    }
+                } catch {
+                    Write-Output "  ⚠️ Failed to add follow-up todo: $_"
+                }
+            }
+            
             # Log
             $logTime = $now.ToString('HH:mm')
-            $logLine = "- $logTime from=$senderSmtpLower class=$class status=sent filed=$filed subject=`"$subject`" notes=deferred-to-nir"
+            $ptTag   = if ($todoPtId) { ";pt=$todoPtId" } else { '' }
+            $logLine = "- $logTime from=$senderSmtpLower class=$class status=sent filed=$filed subject=`"$subject`" notes=deferred-to-nir$ptTag"
             Add-Content -Path $logPath -Value $logLine -Encoding UTF8
             
             # Build summary
             $summaries += [PSCustomObject]@{
-                From = "$($match.DisplayName) <$senderSmtp>"
+                From = "$($match.DisplayName) &lt;$senderSmtp&gt;"
                 Subject = $subject
                 Class = $class
-                Status = 'Sent ✅'
-                Filed = if ($filed -eq 'co-workers') { 'Kusto\Co-Workers ✅' } else { 'left in Inbox - Co-Workers folder not found' }
+                Status = 'Sent OK'
+                Filed = if ($filed -eq 'co-workers') { 'Kusto\Co-Workers OK' } else { 'left in Inbox - Co-Workers folder not found' }
                 Preamble = $preamble.Substring(0, [Math]::Min(200, $preamble.Length))
                 Reply = $bodyHtml
+                Todo = $todoPtId
             }
             
             $processedCount++
@@ -441,17 +498,17 @@ if ($summaries.Count -gt 0 -and -not $WhatIf) {
         $summaryMail.To = $mgrEmail
         $summaryMail.Subject = "$subjectPrefix Auto-reply sent: $($s.Subject)"
         
-        $summaryBody = @"
-<p><b>From:</b> $($s.From)</p>
-<p><b>Subject:</b> $($s.Subject)</p>
-<p><b>What they asked:</b></p>
-<blockquote style="border-left:3px solid #ccc;padding-left:10px;color:#666;">$($s.Preamble)</blockquote>
-<p><b>Classification:</b> $($s.Class)</p>
-<p><b>What I replied:</b></p>
-<blockquote style="border-left:3px solid #ccc;padding-left:10px;">$($s.Reply)</blockquote>
-<p><b>Status:</b> $($s.Status)</p>
-<p><b>Filed to:</b> $($s.Filed)</p>
-"@
+        $todoLine = if ($s.Todo) { "<p><b>Added to your todo list:</b> $($s.Todo) (reports\personal-todos\todos.md)</p>" } else { '' }
+        $summaryBody = "<p><b>From:</b> $($s.From)</p>" + `
+            "<p><b>Subject:</b> $($s.Subject)</p>" + `
+            "<p><b>What they asked:</b></p>" + `
+            "<blockquote style='border-left:3px solid #ccc;padding-left:10px;color:#666;'>$($s.Preamble)</blockquote>" + `
+            "<p><b>Classification:</b> $($s.Class)</p>" + `
+            $todoLine + `
+            "<p><b>What I replied:</b></p>" + `
+            "<blockquote style='border-left:3px solid #ccc;padding-left:10px;'>$($s.Reply)</blockquote>" + `
+            "<p><b>Status:</b> $($s.Status)</p>" + `
+            "<p><b>Filed to:</b> $($s.Filed)</p>"
         
         $summaryMail.HTMLBody = $summaryBody
         if (Test-MigrationMode) {

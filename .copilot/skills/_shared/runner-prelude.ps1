@@ -24,6 +24,17 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'config.ps1')
 
+# Make the shared copilot-agent invoker available to every runner. invoke-agent
+# is self-contained (does not depend on this prelude or $AgentConfig), so this
+# is a one-way dependency (prelude -> invoke-agent) and preserves the lazy-load
+# invariant above.
+. (Join-Path $PSScriptRoot 'invoke-agent.ps1')
+
+# Make the shared comms channel-adapter (Send-NirvanaMessage) available too.
+# comms.ps1 is likewise self-contained (lazy-loads config/signature/migration-mode
+# inside its functions), so this stays a one-way prelude -> comms dependency.
+. (Join-Path $PSScriptRoot 'comms.ps1')
+
 $AgentRoot   = Resolve-AgentRoot
 $AgentConfig = Get-AgentConfig
 Set-Location $AgentRoot

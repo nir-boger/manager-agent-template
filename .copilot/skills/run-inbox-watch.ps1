@@ -126,8 +126,7 @@ try {
     $skillName = (Get-AgentField -Path 'agent.name' -Default 'Nirvana' -Config $AgentConfig)
     $prompt = "Read the skill definition at $AgentRoot\.copilot\skills\inbox-watch\SKILL.md and execute it exactly as described. Do not ask me any questions - proceed autonomously. Honor every guardrail in the SKILL.md (direct-reports-only, explicit $skillName addressing in the live preamble, no externals, no DLs, conversation throttle, sendability filter). When done, print a one-line summary per item processed."
 
-    & copilot -p $prompt --allow-all-tools --no-ask-user --add-dir $connectRootAbs --model claude-sonnet-4.5 *>&1 |
-        Tee-Object -FilePath $logFile
+    Invoke-CopilotAgent -Prompt $prompt -LogFile $logFile -AddDir $connectRootAbs | Out-Null
 }
 finally {
     Remove-Item $lockPath -Force -ErrorAction SilentlyContinue

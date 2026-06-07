@@ -9,4 +9,4 @@ $logFile = Join-Path $LogDir ("pbi-assign-" + (Get-Date -Format 'yyyy-MM-dd_HHmm
 
 $prompt = "Read the skill definition at $AgentRoot\.copilot\skills\pbi-assign-tasks\SKILL.md and execute it exactly as described. Do not ask me any questions - proceed autonomously. When done, print a one-line summary."
 
-& copilot -p $prompt --allow-all-tools --no-ask-user --model claude-sonnet-4.5 *>&1 | Tee-Object -FilePath $logFile
+Invoke-CopilotAgent -Prompt $prompt -LogFile $logFile | Out-Null

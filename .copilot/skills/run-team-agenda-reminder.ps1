@@ -1,0 +1,230 @@
+# Weekly Team Open Discussions Agenda reminder.
+#
+# Parses reports/team-agenda/open-discussions.md, extracts Open items, and emails
+# Nir a short summary so nothing slips through the cracks between WSRs.
+#
+# Manual run:
+#   powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\.copilot\skills\run-team-agenda-reminder.ps1
+# Flags:
+#   -DryRun    compute + log, do not send
+#   -Force     bypass per-week idempotency check
+# Scheduled by:  DM-TeamAgendaReminder (weekly, Mondays 08:00 IST).
+# Per-week idempotency: state\last-sent.txt prevents duplicate sends in the same ISO week.
+
+[CmdletBinding()]
+param(
+    [switch] $DryRun,
+    [switch] $Force,
+    # Override "today" for testing. Format: YYYY-MM-DD.
+    [string] $AsOfDate
+)
+
+. (Join-Path $PSScriptRoot '_shared\runner-prelude.ps1')
+
+$agendaFile = Resolve-AgentPath (Join-Path (Get-AgentField -Path 'paths.reports_root' -Default 'reports' -Config $AgentConfig) 'team-agenda\open-discussions.md') -Config $AgentConfig
+$skillDir   = Join-Path $AgentRoot '.copilot\skills\team-agenda'
+$stateFile  = Join-Path $skillDir 'state\last-sent.txt'
+
+New-Item -ItemType Directory -Force -Path (Split-Path $stateFile) | Out-Null
+$logFile = Join-Path $LogDir ("team-agenda-reminder-" + (Get-Date -Format 'yyyy-MM-dd') + ".log")
+
+$mgrEmail      = Get-AgentField -Path 'manager.email'             -Default 'you@example.com' -Config $AgentConfig
+$subjectPrefix = Get-AgentField -Path 'agent.mail_subject_prefix' -Default '[Nirvana]'               -Config $AgentConfig
+
+function Write-Log {
+    param([string]$Message)
+    $line = "$(Get-Date -Format o) $Message"
+    Add-Content -Path $logFile -Value $line -Encoding UTF8
+    Write-Host $line
+}
+
+# --- ISO week tag helper --------------------------------------------------
+function Get-IsoWeekTag {
+    param([DateTime]$Date)
+    $cal = [System.Globalization.CultureInfo]::InvariantCulture.Calendar
+    $rule = [System.Globalization.CalendarWeekRule]::FirstFourDayWeek
+    $first = [DayOfWeek]::Monday
+    $w = $cal.GetWeekOfYear($Date, $rule, $first)
+    # ISO 8601: week 53 can belong to next year's calendar; nudge using ISO year.
+    $tmp = $Date.AddDays(4 - [int]$Date.DayOfWeek)
+    if ([int]$Date.DayOfWeek -eq 0) { $tmp = $Date.AddDays(-3) }
+    $isoYear = $tmp.Year
+    return ('{0}-W{1:D2}' -f $isoYear, $w)
+}
+
+# --- Parse agenda file ----------------------------------------------------
+function Get-AgendaItems {
+    param([string]$Path)
+
+    if (-not (Test-Path $Path)) {
+        Write-Log "Agenda file not found at $Path. Nothing to remind."
+        return @()
+    }
+
+    $lines = Get-Content -Path $Path -Encoding UTF8
+
+    $items = New-Object System.Collections.Generic.List[object]
+    $current = $null
+    $section = 'preamble'  # preamble | open | closed
+    $headingRe = '^###\s+(TA-\d{3})\s+(?:[\u2014\-]+)\s+(.+?)\s*$'
+    $fieldRe   = '^\s*-\s*\*\*(?<key>[^:*]+):\*\*\s*(?<value>.+?)\s*$'
+    $lastKey = $null
+    $multilineKeys = @('summary', 'next step')
+
+    foreach ($raw in $lines) {
+        if ($raw -match '^##\s+Open\b') { if ($current) { $items.Add($current); $current = $null } ; $section = 'open' ; $lastKey = $null ; continue }
+        if ($raw -match '^##\s+Closed\b') { if ($current) { $items.Add($current); $current = $null } ; $section = 'closed' ; $lastKey = $null ; continue }
+        if ($raw -match $headingRe) {
+            if ($current) { $items.Add($current) }
+            $current = [pscustomobject]@{
+                Id       = $matches[1]
+                Title    = $matches[2]
+                Section  = $section
+                Status   = ''
+                Kind     = ''
+                OpenedBy = ''
+                OpenedOn = ''
+                Owner    = ''
+                Summary  = ''
+                NextStep = ''
+                ClosedOn = ''
+            }
+            $lastKey = $null
+            continue
+        }
+        if ($current -and $raw -match $fieldRe) {
+            $k = $matches['key'].Trim().ToLower()
+            $v = $matches['value'].Trim()
+            switch ($k) {
+                'status'     { $current.Status   = $v }
+                'kind'       { $current.Kind     = $v }
+                'opened by'  { $current.OpenedBy = $v }
+                'opened on'  { $current.OpenedOn = $v }
+                'owner'      { $current.Owner    = $v }
+                'summary'    { $current.Summary  = $v }
+                'next step'  { $current.NextStep = $v }
+                'closed on'  { $current.ClosedOn = $v }
+            }
+            $lastKey = $k
+            continue
+        }
+        # Continuation line of a multi-line field (raw wrapped line, no bullet).
+        if ($current -and $lastKey -and ($multilineKeys -contains $lastKey)) {
+            $t = $raw.Trim()
+            if ($t -eq '' -or $t -match '^#' -or $t -match '^---') {
+                $lastKey = $null
+            } else {
+                switch ($lastKey) {
+                    'summary'   { $current.Summary  = if ($current.Summary)  { $current.Summary  + "`n" + $t } else { $t } }
+                    'next step' { $current.NextStep = if ($current.NextStep) { $current.NextStep + "`n" + $t } else { $t } }
+                }
+            }
+        }
+    }
+    if ($current) { $items.Add($current) }
+
+    return ,@($items.ToArray())
+}
+
+# --- Build event list -----------------------------------------------------
+$today = if ($AsOfDate) { [DateTime]::ParseExact($AsOfDate, 'yyyy-MM-dd', $null).Date } else { (Get-Date).Date }
+$weekTag = Get-IsoWeekTag -Date $today
+
+$allItems = Get-AgendaItems -Path $agendaFile
+$openItems = @($allItems | Where-Object {
+    $_.Section -eq 'open' -and ($_.Status -ieq 'open' -or [string]::IsNullOrWhiteSpace($_.Status))
+})
+
+Write-Log "Parsed $($allItems.Count) item(s) total; $($openItems.Count) open."
+
+# --- Idempotency: skip if we already sent this week ----------------------
+$alreadySent = $false
+if (-not $Force -and (Test-Path $stateFile)) {
+    $existing = Get-Content $stateFile -Encoding UTF8 -ErrorAction SilentlyContinue
+    foreach ($line in $existing) {
+        if ($line.Trim() -eq $weekTag) { $alreadySent = $true; break }
+    }
+}
+if ($alreadySent) {
+    Write-Log "Reminder already sent this week ($weekTag). Skipping. Use -Force to override."
+    return
+}
+
+# --- Build email ----------------------------------------------------------
+. (Join-Path $skillDir 'render.ps1')
+
+$count = $openItems.Count
+$plural = if ($count -eq 1) { 'item' } else { 'items' }
+$tail   = Format-AgendaSubjectTail -Items $openItems
+
+if ($count -eq 0) {
+    $opener  = "<p>The team open discussions agenda is empty &mdash; nothing tracked this week.</p>"
+    $tables  = ''
+    $subject = "$subjectPrefix Team open discussions &mdash; nothing open"
+} else {
+    $opener  = "<p>$count open $plural on the team open discussions agenda. Anything ripe for this week's WSR / sync?</p>"
+    $tables  = Render-TwoTableAgenda -Items $openItems
+    $subject = "$subjectPrefix Team open discussions &mdash; $tail"
+}
+
+$footer = "<p style='color:#666;font-size:12px;margin-top:14px'>Source: <code>reports/team-agenda/open-discussions.md</code>. To add, close, or list items, ask me.</p>"
+
+# Jokes — short, on-topic, Nirvana-band-flavored where it lands cleanly.
+$jokes = @(
+    "Come as you are &mdash; bring an agenda item.",
+    "All apologies if anything stayed parked here a week too long.",
+    "Status: open. Mood: ready to be discussed.",
+    "If an item lingers another week, we promote it from 'open' to 'overdue'.",
+    "Drained, but the list isn't.",
+    "On a plain markdown file, no less &mdash; pleasantly low-tech."
+)
+$joke = $jokes | Get-Random
+$jokeHtml = "<p style='color:#555;font-style:italic;margin-top:14px'>$joke</p>"
+
+# Signature
+. (Join-Path $PSScriptRoot '_shared\signature.ps1')
+$signature = Get-NirvanaSignature
+
+$html = "<html><body style='font-family:Segoe UI,Arial,sans-serif;font-size:14px'>" +
+        $opener +
+        $tables +
+        $footer +
+        $jokeHtml +
+        $signature +
+        "</body></html>"
+
+Write-Log "Subject: $subject"
+
+if ($DryRun) {
+    Write-Log "DryRun set - skipping send."
+    return
+}
+
+# --- Send via Outlook COM (skip silently if Outlook not running) ----------
+. (Join-Path $PSScriptRoot '_shared\ensure-outlook.ps1')
+. (Join-Path $PSScriptRoot '_shared\migration-mode.ps1')
+$_ensureLog = Join-Path $LogDir 'ensure-outlook.log'
+if (-not (Ensure-OutlookRunning -LogFile $_ensureLog)) { exit 0 }
+
+try {
+    $ol   = New-Object -ComObject Outlook.Application
+    $mail = $ol.CreateItem(0)
+    $mail.To       = $mgrEmail
+    $mail.Subject  = $subject
+    $mail.HTMLBody = $html
+    if (Test-MigrationMode) {
+        Write-Log "  [migration-mode] Skipping Send() for: $subject"
+    } else {
+        $mail.Send() | Out-Null
+    }
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($mail) | Out-Null
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ol)   | Out-Null
+    Write-Log "Sent."
+
+    Add-Content -Path $stateFile -Value $weekTag -Encoding UTF8
+}
+catch {
+    Write-Log "  WARN: email send failed: $($_.Exception.Message). email=skipped:$($_.Exception.GetType().Name)"
+    return
+}
+
