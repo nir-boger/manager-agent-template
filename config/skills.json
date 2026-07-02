@@ -72,6 +72,26 @@
       "summary": "Weekly Nir-only schedule-slippage email for the current iteration (Your Team), distinct from sprint-report-daily (a daily markdown file) and semester-plan-report (Feature/PBI leadership dashboard). Pulls the active sprint from ADO, classifies Task+Bug items, and reports pace as working-day elapsed % vs work-done %, in BOTH current scope and baseline scope (IDs snapshotted on the first run of the iteration, so added/removed work is visible). Includes a pace verdict ribbon (On track / Behind / Well behind), a Not-started table, a By-person breakdown, and an item delta since the last digest (completed / added / removed / reopened). Working week is Sun-Thu. Scheduled DM-SprintDigest weekly Sundays 09:00 IST; idempotency keyed on iterationId + Sunday week-start; best-effort ADO via az token with graceful no-sprint / zero-item handling; joke + signature; never modifies ADO."
     },
     {
+      "name": "ado-item-tracker",
+      "surface": "engine",
+      "category": "sprint-pbis",
+      "role": "sprint-delivery",
+      "path": ".copilot/skills/ado-item-tracker",
+      "entrypoint_path": ".copilot/skills/run-ado-item-tracker.ps1",
+      "triggers": [
+        "track ADO",
+        "untrack ADO",
+        "stop tracking ADO",
+        "list tracked ADO",
+        "what ADO am I tracking",
+        "ADO tracker digest",
+        "ado-item-tracker"
+      ],
+      "show_in_agents": true,
+      "ship_in_snapshot": true,
+      "summary": "Tracks a curated set of ADO work items (Nir's manager watchlist, distinct from sprint-digest/sprint-report-daily which cover the whole sprint). Three surfaces: a DAILY Nir-only HTML digest email (Sun-Thu 09:00 IST) with an ADO-link/title/owner/status table; an HOURLY change watcher that emails Nir only when a tracked item's state/assignee/title changes or it is otherwise edited (idempotent via a diff baseline advanced only after a successful send); and a Nirvana Board 'ADO Tracker' tab with a per-row 'Ping owner' button that emails the assignee a status-check on Nir's behalf. Source of truth reports/ado-tracker/tracked.json (ids + notes); live fields are fetched from ADO via an az token + org-level workitemsbatch (items may live in any project) and cached to reports/ado-tracker/cache.json so the Board renders without its own token. Add/remove by chat ('track ADO <id>' / 'untrack ADO <id>'). Scheduled DM-AdoTrackerDigest (weekly Sun-Thu 09:00) + DM-AdoTrackerWatch (interval PT1H, 24/7); best-effort ADO with graceful no-token degradation; joke + signature on every email; ping refuses unassigned or someone@example.com owners; never modifies ADO."
+    },
+    {
       "name": "email-team",
       "surface": "engine",
       "category": "comms",

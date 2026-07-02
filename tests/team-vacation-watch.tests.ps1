@@ -125,6 +125,58 @@ Describe 'Get-WorkingDayCount' {
     }
 }
 
+Describe 'Get-RecurringOffDays' {
+    # WindowStart 2026-06-14 is a Sunday; one Sun..Sat week = 7 chars, Wed at week-index 3.
+    $ws = [datetime]'2026-06-14'
+    It 'flags a standing weekly day-off (OOF every Wednesday) as recurring' {
+        # "0003033" = Sun0 Mon0 Tue0 Wed3 Thu0 Fri3 Sat3 ; x4 weeks. Fri/Sat are weekend.
+        $daily = '0003033' * 4
+        Assert-Equal '3' (@(Get-RecurringOffDays -DailyOof $daily -WindowStart $ws) -join ',')
+    }
+    It 'one extra adjacent OOF weekday does not change the recurring set (still just Wed)' {
+        # Reproduces Lea: off every Wed, plus one week also off the Tuesday (Tue+Wed).
+        $chars = ('0003033' * 4).ToCharArray()
+        $chars[16] = '3'   # week 2 (0-based) Tuesday -> OOF
+        $daily = -join $chars
+        Assert-Equal '3' (@(Get-RecurringOffDays -DailyOof $daily -WindowStart $ws) -join ',')
+    }
+    It 'a genuine contiguous multi-day block is NOT recurring (interior days never isolated)' {
+        # Tue+Wed+Thu OOF for 3 straight weeks: Wed is always flanked by an OOF working day.
+        $daily = ('0033300' * 3) + '0000000'
+        Assert-Equal '' (@(Get-RecurringOffDays -DailyOof $daily -WindowStart $ws) -join ',')
+    }
+    It 'too few observed weeks (<3) is not enough to call it recurring' {
+        $daily = '0003033' * 2
+        Assert-Equal '' (@(Get-RecurringOffDays -DailyOof $daily -WindowStart $ws) -join ',')
+    }
+    It 'weekend days (Fri/Sat) are never returned even when OOF every week' {
+        # Only Fri+Sat OOF, every week -> nothing recurring among working days.
+        $daily = '0000033' * 4
+        Assert-Equal '' (@(Get-RecurringOffDays -DailyOof $daily -WindowStart $ws) -join ',')
+    }
+    It 'empty input -> empty set' {
+        Assert-Equal '' (@(Get-RecurringOffDays -DailyOof '' -WindowStart $ws) -join ',')
+    }
+    It 'catches an off-every-Sunday pattern (isolation ignores the weekend gap)' {
+        # Sun3 then working Mon-Thu clear; Fri/Sat weekend OOF. Sunday's prior working
+        # neighbour is Thursday (skipping Sat/Fri), which is clear -> isolated.
+        $daily = '3000033' * 4
+        Assert-Equal '0' (@(Get-RecurringOffDays -DailyOof $daily -WindowStart $ws) -join ',')
+    }
+}
+
+Describe 'Get-EffectiveWorkingDays' {
+    It 'subtracts a recurring Wednesday from the Sun-Thu set' {
+        Assert-Equal '0,1,2,4' (@(Get-EffectiveWorkingDays -RecurringOff @(3)) -join ',')
+    }
+    It 'no recurring days -> full Sun-Thu set' {
+        Assert-Equal '0,1,2,3,4' (@(Get-EffectiveWorkingDays -RecurringOff @()) -join ',')
+    }
+    It 'never returns empty: all-days recurring falls back to the full set' {
+        Assert-Equal '0,1,2,3,4' (@(Get-EffectiveWorkingDays -RecurringOff @(0,1,2,3,4)) -join ',')
+    }
+}
+
 Describe 'Get-WelcomeDueDecision' {
     It 'weekday return due on the return date' {
         $d = Get-WelcomeDueDecision -Today ([datetime]'2026-06-04') -ReturnDate ([datetime]'2026-06-04')
@@ -351,6 +403,36 @@ Describe 'apply-vacation-state.ps1 scan (integration, temp dirs)' {
         Remove-Item $fx.Root -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    It 'recurring-off weekday is subtracted from the gate: a Tue+Wed span with a standing Wednesday off is NOT welcomed (the every-Thursday-Lea bug)' {
+        $fx = New-Fixture
+        # Prior: Lea "on vacation" Tue 2026-06-30..Wed 2026-07-01 (what the free/busy read saw).
+        $prior = '{ "as_of":"2026-07-01","people":{ "lea-Teammate2":{ "on_vacation":true,"start":"2026-06-30","end":"2026-07-01","confidence":"high" } } }'
+        Set-Content (Join-Path $fx.State 'vacation-status.json') $prior -Encoding UTF8
+        # Current: back at work Thursday 07-02, and the reader reports Wednesday (dow 3) as a
+        # recurring weekly day-off. Return date = end+1 = 2026-07-02.
+        $wq = '{ "as_of":"2026-07-02","people":[{"name":"Teammate2","on_vacation":false,"start":null,"end":null,"returned_today":false,"confidence":"high","recurring_off_days":[3]}] }'
+        $out = Invoke-Scan -fx $fx -wqJson $wq -AsOf '2026-07-02'
+        # Only Tuesday is unexpected (1 working day) -> below the >=2 gate -> no welcome.
+        Assert-Match '"returnees":\[\]' $out
+        # No ledger claim written (ledger may exist as an empty array, but no entries).
+        $ledPath = Join-Path $fx.State 'welcomed.json'
+        $ledCount = 0
+        if (Test-Path $ledPath) { $ledCount = @((Get-Content $ledPath -Raw -Encoding UTF8 | ConvertFrom-Json)).Count }
+        Assert-Equal 0 $ledCount
+        Remove-Item $fx.Root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'control: the same Tue+Wed span WITHOUT a recurring-off weekday IS welcomed (proves the recurring flag is the only difference)' {
+        $fx = New-Fixture
+        $prior = '{ "as_of":"2026-07-01","people":{ "lea-Teammate2":{ "on_vacation":true,"start":"2026-06-30","end":"2026-07-01","confidence":"high" } } }'
+        Set-Content (Join-Path $fx.State 'vacation-status.json') $prior -Encoding UTF8
+        $wq = '{ "as_of":"2026-07-02","people":[{"name":"Teammate2","on_vacation":false,"start":null,"end":null,"returned_today":false,"confidence":"high","recurring_off_days":[]}] }'
+        $out = Invoke-Scan -fx $fx -wqJson $wq -AsOf '2026-07-02'
+        Assert-Match '"alias":"lea-Teammate2"' $out
+        Assert-Match '"return_date":"2026-07-02"' $out
+        Remove-Item $fx.Root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     It 'invalid WorkIQ JSON touches nothing and exits non-zero' {
         $fx = New-Fixture
         $ozBefore = Get-Content (Join-Path $fx.People 'oz-Teammate8.md') -Raw -Encoding UTF8
@@ -473,6 +555,37 @@ Describe 'apply-vacation-state.ps1 scan (integration, temp dirs)' {
         Assert-Match '"vac_work_days":2' $out
         Remove-Item $fx.Root -Recurse -Force -ErrorAction SilentlyContinue
     }
+    It 'explicit returned_today for a 1-working-day absence is NOT welcomed (span sourced from the current read)' {
+        # Reproduces the Lea 2026-06-24 miss: an earlier run the same day already flipped her
+        # to not-on-vacation (prior snapshot has no span), then the live free/busy returned_today
+        # signal re-detects the return. The decoder now reports the just-ended OOF run on the
+        # current read, so the gate measures 1 working day (Wed) and suppresses the welcome.
+        $fx = New-Fixture
+        $prior = '{ "as_of":"2026-06-24","people":{ "lea-Teammate2":{ "on_vacation":false,"start":null,"end":null,"confidence":"high" } } }'
+        Set-Content (Join-Path $fx.State 'vacation-status.json') $prior -Encoding UTF8
+        $wq = '{ "as_of":"2026-06-25","people":[{"name":"Teammate2","on_vacation":false,"start":"2026-06-24","end":"2026-06-24","returned_today":true,"confidence":"high"}] }'
+        $out = Invoke-Scan -fx $fx -wqJson $wq -AsOf '2026-06-25'
+        Assert-Match '"returnees":\[\]' $out
+        # No ledger claim is written for a gated absence.
+        $ledgerPath = Join-Path $fx.State 'welcomed.json'
+        if (Test-Path $ledgerPath) {
+            $led = @(Get-Content $ledgerPath -Raw -Encoding UTF8 | ConvertFrom-Json)
+            Assert-Equal 0 (@($led | Where-Object { "$($_.alias)" -eq 'lea-Teammate2' }).Count)
+        }
+        Remove-Item $fx.Root -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    It 'explicit returned_today for a 2-working-day absence IS welcomed (span from current read)' {
+        # Same explicit path, but Tue+Wed (2 working days) clears the min-working-days gate.
+        $fx = New-Fixture
+        $prior = '{ "as_of":"2026-06-24","people":{ "lea-Teammate2":{ "on_vacation":false,"start":null,"end":null,"confidence":"high" } } }'
+        Set-Content (Join-Path $fx.State 'vacation-status.json') $prior -Encoding UTF8
+        $wq = '{ "as_of":"2026-06-25","people":[{"name":"Teammate2","on_vacation":false,"start":"2026-06-23","end":"2026-06-24","returned_today":true,"confidence":"high"}] }'
+        $out = Invoke-Scan -fx $fx -wqJson $wq -AsOf '2026-06-25'
+        Assert-Match '"alias":"lea-Teammate2"' $out
+        Assert-Match '"return_date":"2026-06-25"' $out
+        Assert-Match '"vac_work_days":2' $out
+        Remove-Item $fx.Root -Recurse -Force -ErrorAction SilentlyContinue
+    }
     It 'future-dated return (return_date > today) is NOT welcomed (never welcome before they are back)' {
         $fx = New-Fixture
         # Prior says Oz on vacation through tomorrow; today he reads not-on-vac (e.g. a
@@ -524,11 +637,23 @@ Describe 'Get-FreeBusyVacationStatus' {
         Assert-Equal '2026-06-06' $r.end
         Assert-Equal 'high' $r.confidence
     }
-    It 'returned_today: yesterday OOF, today not -> true' {
+    It 'returned_today: yesterday OOF, today not -> true, and reports the just-ended run' {
         $r = Get-FreeBusyVacationStatus -FreeBusy '0030000' -WindowStart $ws -AsOf ([datetime]'2026-06-04')
         Assert-Equal $false $r.on_vacation
         Assert-Equal $true $r.returned_today
+        # The single-day OOF run that just ended (yesterday = Jun 3) is reported so the
+        # min-working-days gate can measure a 1-day absence and suppress the welcome.
+        Assert-Equal '2026-06-03' $r.start
+        Assert-Equal '2026-06-03' $r.end
         Assert-Equal 'high' $r.confidence
+    }
+    It 'returned_today: multi-day ended run is walked back to start..end' {
+        # idx: 0=Jun1(0) 1=Jun2(3) 2=Jun3(3) 3=Jun4(3) 4=Jun5(0); AsOf Jun5 -> yesterday Jun4 OOF.
+        $r = Get-FreeBusyVacationStatus -FreeBusy '0333000' -WindowStart $ws -AsOf ([datetime]'2026-06-05')
+        Assert-Equal $false $r.on_vacation
+        Assert-Equal $true $r.returned_today
+        Assert-Equal '2026-06-02' $r.start
+        Assert-Equal '2026-06-04' $r.end
     }
     It 'not on vacation, working all week -> false/false high' {
         $r = Get-FreeBusyVacationStatus -FreeBusy '0000000' -WindowStart $ws -AsOf ([datetime]'2026-06-04')

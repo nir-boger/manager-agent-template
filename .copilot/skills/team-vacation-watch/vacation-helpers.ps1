@@ -49,13 +49,26 @@ function Get-FreeBusyVacationStatus {
         }
     }
 
-    # Not OOF today. returned_today only if we can see yesterday was OOF.
+    # Not OOF today. returned_today only if we can see yesterday was OOF. When it IS a
+    # return, walk the contiguous OOF run that just ended (end = yesterday) and report its
+    # start..end, so the caller can measure how many working days the absence cost and gate
+    # the welcome on it. Without this the explicit returned_today path carried no span and
+    # slipped past the min-working-days gate -- a 1-working-day absence got wrongly welcomed.
+    # Symmetric to the on-vacation branch above.
     $returnedToday = $false
-    if ($ti - 1 -ge 0 -and "$($FreeBusy[$ti - 1])" -eq $OofCode) { $returnedToday = $true }
+    $endedStart = $null
+    $endedEnd   = $null
+    if ($ti - 1 -ge 0 -and "$($FreeBusy[$ti - 1])" -eq $OofCode) {
+        $returnedToday = $true
+        $e = $ti - 1
+        $s = $e; while ($s - 1 -ge 0 -and "$($FreeBusy[$s - 1])" -eq $OofCode) { $s-- }
+        $endedStart = $WindowStart.Date.AddDays($s).ToString('yyyy-MM-dd')
+        $endedEnd   = $WindowStart.Date.AddDays($e).ToString('yyyy-MM-dd')
+    }
     return [pscustomobject]@{
         on_vacation    = $false
-        start          = $null
-        end            = $null
+        start          = $endedStart
+        end            = $endedEnd
         returned_today = $returnedToday
         confidence     = 'high'
     }
@@ -250,6 +263,88 @@ function Get-WorkingDayCount {
         $d = $d.AddDays(1)
     }
     return $count
+}
+
+# Detect a person's RECURRING weekly Out-of-Office weekdays from a multi-week DAILY OOF
+# string (one char per day, '3' = full-day OOF). This is what distinguishes a standing
+# weekly day-off (e.g. a part-timer who is OOF every Wednesday, or every Sunday) from a
+# genuine multi-day vacation.
+#
+# WHY THIS EXISTS: the min-working-days gate alone treated recurring OOF as vacation.
+# Teammate2 is OOF every Wednesday (plus her Fri/Sat weekend). Most weeks that is 1
+# working day (gated out), but any week she was ALSO off an adjacent weekday (e.g. Tue+Wed)
+# crossed the >=2 gate and wrongly fired a "welcome back" -- every Thursday. Subtracting a
+# person's recurring-off weekdays from the vacation working-day count fixes this at the root:
+# only UNEXPECTED absence counts toward a welcome-back.
+#
+# A working weekday is "recurring off" when, across the window, it is OOF on a strong
+# majority ($MinOofFraction) of its >=$MinObserved occurrences AND it appears OOF *in
+# isolation* -- i.e. NOT part of a multi-working-day contiguous OOF block -- in at least
+# $MinIsolated distinct weeks. The isolation test is measured against the nearest WORKING-day
+# neighbours (so the Fri/Sat weekend gap is ignored), which lets it also catch someone off
+# every Sunday or every Thursday, while a genuine contiguous vacation (whose interior
+# weekdays are never isolated) is never mistaken for a recurring pattern.
+#
+# Weekends (the days NOT in $WorkingDays) are never returned: they are already handled by
+# the base working-day set, so recurring detection only ranges over working weekdays.
+# Returns an int[] of DayOfWeek values (0=Sun..6=Sat). Pure: no COM, no I/O.
+function Get-RecurringOffDays {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string] $DailyOof,
+        [Parameter(Mandatory)][datetime] $WindowStart,
+        [int[]]  $WorkingDays    = @(0, 1, 2, 3, 4),
+        [int]    $MinObserved    = 3,
+        [double] $MinOofFraction = 0.6,
+        [int]    $MinIsolated    = 2,
+        [string] $OofCode        = '3'
+    )
+    $result = @()
+    if ([string]::IsNullOrEmpty($DailyOof)) { return $result }
+    $n = $DailyOof.Length
+    $isOof = New-Object 'bool[]' $n
+    $dow   = New-Object 'int[]' $n
+    for ($i = 0; $i -lt $n; $i++) {
+        $isOof[$i] = ("$($DailyOof[$i])" -eq $OofCode)
+        $dow[$i]   = [int]$WindowStart.Date.AddDays($i).DayOfWeek
+    }
+    # OOF status of the nearest working-day neighbour before/after index (skips weekend days);
+    # a missing neighbour (window edge) counts as NOT OOF, so an edge occurrence reads isolated.
+    $neighbourOof = {
+        param($idx, $step)
+        for ($j = $idx + $step; $j -ge 0 -and $j -lt $n; $j += $step) {
+            if (@($WorkingDays) -contains $dow[$j]) { return $isOof[$j] }
+        }
+        return $false
+    }
+    foreach ($wd in @($WorkingDays)) {
+        $observed = 0; $oof = 0; $isolated = 0
+        for ($i = 0; $i -lt $n; $i++) {
+            if ($dow[$i] -ne $wd) { continue }
+            $observed++
+            if ($isOof[$i]) {
+                $oof++
+                if (-not (& $neighbourOof $i -1) -and -not (& $neighbourOof $i 1)) { $isolated++ }
+            }
+        }
+        if ($observed -ge $MinObserved -and ($oof / [double]$observed) -ge $MinOofFraction -and $isolated -ge $MinIsolated) {
+            $result += $wd
+        }
+    }
+    return @($result)
+}
+
+# The Israel working-day set (Sun-Thu) with a person's recurring-off weekdays removed, so a
+# vacation working-day count reflects only UNEXPECTED absence. Never returns an empty set
+# (if every working day were somehow recurring-off we fall back to the full set rather than
+# suppress every genuine vacation).
+function Get-EffectiveWorkingDays {
+    param(
+        [int[]] $RecurringOff = @(),
+        [int[]] $WorkingDays  = @(0, 1, 2, 3, 4)
+    )
+    $eff = @(@($WorkingDays) | Where-Object { @($RecurringOff) -notcontains $_ })
+    if (-not $eff -or $eff.Count -eq 0) { return @($WorkingDays) }
+    return $eff
 }
 
 function Get-WelcomeDueDecision {

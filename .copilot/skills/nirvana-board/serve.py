@@ -23,11 +23,12 @@ import re
 import subprocess
 import sys
 import threading
-from datetime import date
+import time
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 THIS_FILE = Path(__file__).resolve()
 SKILL_DIR = THIS_FILE.parent
@@ -45,11 +46,29 @@ import scope_board_io as sbio  # noqa: E402
 import sdk_rotation_io as sdkio  # noqa: E402
 import directs as directs_mod  # noqa: E402
 
-VERSION = "0.8.0"
+VERSION = "0.10.0"
 
 # Single write-lock guards every PATCH/POST so concurrent requests don't
 # clobber each other's reads.
 WRITE_LOCK = threading.Lock()
+
+# Scheduled-task enumeration (Get-ScheduledTask) spawns PowerShell and takes
+# ~2s across the ~35 DM-* tasks, so it is deliberately kept OUT of the
+# per-load /api/board snapshot. Instead the Board lazy-loads /api/scheduled-tasks
+# once after boot (and on manual refresh). A short in-process cache means rapid
+# tab-switches / auto-refreshes reuse the last result instead of re-spawning.
+_SCHED_LOCK = threading.Lock()
+_SCHED_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_SCHED_TTL = 60.0  # seconds
+
+# Today's Outlook calendar (My Day tab) is read via a PowerShell/COM spawn that
+# costs ~1-2s, so - like the scheduled tasks - it is lazy-loaded via its own
+# /api/my-day endpoint and the *meetings* portion is cached in-process. The
+# board-derived suggestions (needs-attention / focus) are recomputed from a
+# fresh board snapshot on every call so they reflect closes/adds immediately.
+_CAL_LOCK = threading.Lock()
+_CAL_CACHE: dict[str, Any] = {"ts": 0.0, "date": None, "data": None, "available": False, "error": None}
+_CAL_TTL = 120.0  # seconds
 
 
 def safe_slug(s: str) -> str:
@@ -75,6 +94,12 @@ class Paths:
         self.pt_add = self.root / ".copilot" / "skills" / "personal-todos" / "add-item.py"
         self.ta_add = self.root / ".copilot" / "skills" / "team-agenda" / "add-item.py"
         self.on_add = self.root / ".copilot" / "skills" / "one-on-one-agenda" / "add-item.py"
+        # ado-item-tracker: curated ADO work-item watchlist. tracked.json is the
+        # committed source of truth (ids + notes); cache.json is the gitignored
+        # live-fields cache refreshed by the runner. The Board reads both.
+        self.ado_tracker_tracked = self.root / "reports" / "ado-tracker" / "tracked.json"
+        self.ado_tracker_cache = self.root / "reports" / "ado-tracker" / "cache.json"
+        self.ado_tracker_runner = self.root / ".copilot" / "skills" / "run-ado-item-tracker.ps1"
 
 
 # --- Board snapshot ------------------------------------------------------
@@ -239,6 +264,12 @@ def board_snapshot(paths: Paths) -> dict[str, Any]:
                 "exists": True, "order_table_index": None, "error": str(ex),
             }
 
+    try:
+        ado_tracker = ado_tracker_snapshot(paths)
+    except Exception as ex:  # pragma: no cover - defensive
+        ado_tracker = {"items": [], "path": "reports/ado-tracker/tracked.json",
+                       "exists": False, "count": 0, "error": str(ex)}
+
     return {
         "version": VERSION,
         "today": date.today().isoformat(),
@@ -248,6 +279,7 @@ def board_snapshot(paths: Paths) -> dict[str, Any]:
         "one_on_ones": one_on_ones,
         "scope_board": scope_board,
         "sdk_rotation": sdk_rotation,
+        "ado_tracker": ado_tracker,
         "directs": directs_list,
         "counts": {
             "todos_open": sum(1 for i in todos if i["status"] != "done"),
@@ -256,6 +288,7 @@ def board_snapshot(paths: Paths) -> dict[str, Any]:
             "one_on_ones_open": sum(p["open_count"] for p in one_on_ones),
             "scope_board_rows": scope_rows,
             "sdk_rotation_rows": sdk_rows,
+            "ado_tracker": ado_tracker.get("count", 0),
             "directs": len(directs_list),
         },
     }
@@ -727,6 +760,730 @@ def send_one_on_one_summary(paths: Paths, slug: str, payload: dict[str, Any]) ->
     return 202, {"slug": slug, "dry_run": dry_run, "notes_file": str(notes_file)}
 
 
+# --- ADO item tracker ----------------------------------------------------
+
+def ado_tracker_snapshot(paths: Paths) -> dict[str, Any]:
+    """Merge the committed tracked set (ids + notes) with the gitignored live
+    cache (title/owner/status/url, refreshed by run-ado-item-tracker.ps1) so the
+    Board can render the ADO Tracker tab without holding an ADO token itself."""
+    tracked: list[dict[str, Any]] = []
+    exists = paths.ado_tracker_tracked.exists()
+    if exists:
+        try:
+            data = json.loads(paths.ado_tracker_tracked.read_text(encoding="utf-8"))
+            tracked = list(data.get("items") or [])
+        except (OSError, ValueError):
+            tracked = []
+
+    cache: dict[str, Any] = {}
+    generated_at = ""
+    if paths.ado_tracker_cache.exists():
+        try:
+            c = json.loads(paths.ado_tracker_cache.read_text(encoding="utf-8"))
+            cache = c.get("items") or {}
+            generated_at = c.get("generatedAt", "")
+        except (OSError, ValueError):
+            cache = {}
+
+    items: list[dict[str, Any]] = []
+    for t in tracked:
+        wid = t.get("id")
+        c = cache.get(str(wid)) or {}
+        owner_email = str(c.get("ownerEmail") or "")
+        items.append({
+            "id": wid,
+            "note": str(t.get("note") or ""),
+            "added_at": str(t.get("addedAt") or ""),
+            "title": str(c.get("title") or ""),
+            "type": str(c.get("type") or ""),
+            "state": str(c.get("state") or ""),
+            "owner": str(c.get("owner") or ""),
+            "owner_email": owner_email,
+            "url": str(c.get("url") or f"https://your-ado-org.visualstudio.com/One/_workitems/edit/{wid}"),
+            "changed_date": str(c.get("changedDate") or ""),
+            "can_ping": bool(owner_email and owner_email.lower().endswith("@microsoft.com")),
+            "synced": bool(c),
+        })
+
+    return {
+        "items": items,
+        "path": "reports/ado-tracker/tracked.json",
+        "exists": exists,
+        "generated_at": generated_at,
+        "count": len(items),
+    }
+
+
+# --- Scheduled tasks -----------------------------------------------------
+
+# PowerShell that enumerates every DM-* Windows Scheduled Task and emits one
+# JSON object per task with a human-readable schedule string. Mirrors the
+# enumeration the nirvana-site build.py does, but formats a friendlier
+# `schedule` field instead of raw CIM class names.
+_SCHED_PS = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+function Fmt-Interval($iso) {
+  if (-not $iso) { return '' }
+  if ($iso -match '^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$') {
+    $parts = @()
+    if ($Matches[1]) { $parts += "$($Matches[1])d" }
+    if ($Matches[2]) { $parts += "$($Matches[2])h" }
+    if ($Matches[3]) { $parts += "$($Matches[3])m" }
+    if ($Matches[4]) { $parts += "$($Matches[4])s" }
+    if ($parts.Count) { return ($parts -join '') }
+  }
+  return $iso
+}
+$dow = @{ 1='Sun'; 2='Mon'; 4='Tue'; 8='Wed'; 16='Thu'; 32='Fri'; 64='Sat' }
+$out = Get-ScheduledTask -TaskName 'DM-*' | ForEach-Object {
+  $t = $_
+  $info = Get-ScheduledTaskInfo -TaskName $t.TaskName -TaskPath $t.TaskPath
+  $sched = @()
+  foreach ($tr in $t.Triggers) {
+    $kind = ''
+    if ($tr.CimClass) { $kind = $tr.CimClass.CimClassName }
+    $time = ''
+    if ($tr.StartBoundary) { try { $time = ([datetime]$tr.StartBoundary).ToString('HH:mm') } catch {} }
+    $d = ''
+    switch -Wildcard ($kind) {
+      '*DailyTrigger'  { $d = 'Daily'; if ($time) { $d += " @ $time" } }
+      '*WeeklyTrigger' {
+        $names = @()
+        foreach ($k in ($dow.Keys | Sort-Object)) { if ([int]$tr.DaysOfWeek -band $k) { $names += $dow[$k] } }
+        if ($names.Count) { $d = ($names -join ',') } else { $d = 'Weekly' }
+        if ($tr.WeeksInterval -and [int]$tr.WeeksInterval -gt 1) { $d += " /$($tr.WeeksInterval)wk" }
+        if ($time) { $d += " @ $time" }
+      }
+      '*TimeTrigger'         { $d = 'Once'; if ($time) { $d += " @ $time" } }
+      '*LogonTrigger'        { $d = 'At logon' }
+      '*BootTrigger'         { $d = 'At startup' }
+      '*RegistrationTrigger' { $d = 'On registration' }
+      '*EventTrigger'        { $d = 'On event' }
+      default { if ($kind) { $d = ($kind -replace '^MSFT_Task', '' -replace 'Trigger$', '') } else { $d = 'trigger' } }
+    }
+    if ($tr.Repetition -and $tr.Repetition.Interval) {
+      $iv = Fmt-Interval $tr.Repetition.Interval
+      if ($iv) { $d += " - every $iv" }
+    }
+    $sched += $d
+  }
+  $nr = ''
+  if ($info.NextRunTime -and $info.NextRunTime.Year -ge 2000) { $nr = $info.NextRunTime.ToString('o') }
+  $lr = ''
+  if ($info.LastRunTime -and $info.LastRunTime.Year -ge 2000) { $lr = $info.LastRunTime.ToString('o') }
+  [PSCustomObject]@{
+    name        = "$($t.TaskName)"
+    state       = "$($t.State)"
+    description = "$($t.Description)"
+    schedule    = ($sched -join ' | ')
+    next_run    = $nr
+    last_run    = $lr
+    last_result = [int64]$info.LastTaskResult
+  }
+}
+$out | ConvertTo-Json -Depth 4
+"""
+
+
+def _run_scheduled_tasks_ps() -> tuple[list[dict[str, Any]], str | None]:
+    """Enumerate DM-* Windows Scheduled Tasks. Returns (tasks, error)."""
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", _SCHED_PS],
+            capture_output=True, text=True, timeout=45,
+        )
+    except (OSError, subprocess.SubprocessError) as ex:
+        return [], f"failed to run PowerShell: {ex}"
+    if r.returncode != 0:
+        msg = (r.stderr or "").strip() or f"powershell exited {r.returncode}"
+        return [], msg[:500]
+    out = (r.stdout or "").strip()
+    if not out or out == "null":
+        return [], None
+    try:
+        data = json.loads(out)
+    except ValueError as ex:
+        return [], f"could not parse task JSON: {ex}"
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return [], None
+    data.sort(key=lambda x: str(x.get("name", "")))
+    return data, None
+
+
+def _first_sentence(text: str) -> str:
+    """Collapse to a single line and keep just the first sentence. No ellipsis
+    and no hard cap: the Board wraps this to ~2 lines and keeps the full text
+    in a hover tooltip, so nothing is lost."""
+    s = " ".join((text or "").split())
+    if not s:
+        return ""
+    m = re.search(r"\.\s", s)
+    if m:
+        s = s[: m.start() + 1]
+    return s
+
+
+def _scheduled_task_meta(paths: Paths) -> dict[str, dict[str, str]]:
+    """Map each DM-* task name -> {skill, summary, note} by joining
+    config/schedules.json (task suffix -> skill) with config/skills.json
+    (skill -> one-line summary). Powers the Board's "What it does" column."""
+    meta: dict[str, dict[str, str]] = {}
+    try:
+        prefix = "DM"
+        agent_json = paths.root / "config" / "agent.json"
+        if agent_json.exists():
+            a = json.loads(agent_json.read_text(encoding="utf-8"))
+            prefix = str((a.get("tasks") or {}).get("prefix") or "DM")
+
+        summaries: dict[str, str] = {}
+        skills_json = paths.root / "config" / "skills.json"
+        if skills_json.exists():
+            sj = json.loads(skills_json.read_text(encoding="utf-8"))
+            for s in (sj.get("skills") or []):
+                if s.get("name"):
+                    summaries[str(s["name"])] = str(s.get("summary") or "")
+
+        sched_json = paths.root / "config" / "schedules.json"
+        if sched_json.exists():
+            cj = json.loads(sched_json.read_text(encoding="utf-8"))
+            for t in (cj.get("tasks") or []):
+                suffix = str(t.get("suffix") or "")
+                if not suffix:
+                    continue
+                skill = str(t.get("skill") or "")
+                meta[f"{prefix}-{suffix}"] = {
+                    "skill": skill,
+                    "summary": summaries.get(skill, ""),
+                    "note": str(t.get("note") or ""),
+                }
+    except (OSError, ValueError):
+        return meta
+    return meta
+
+
+def _explain_task(task: dict[str, Any], info: dict[str, str]) -> str:
+    """One-line explanation of what a scheduled task does. Prefers the task's
+    own Task Scheduler description, then the skill summary, then a config note,
+    then a plain 'runs the <skill> skill' fallback."""
+    desc = str(task.get("description") or "").strip()
+    if desc:
+        return _first_sentence(desc)
+    if info.get("summary"):
+        return _first_sentence(info["summary"])
+    if info.get("note"):
+        return _first_sentence(info["note"])
+    if info.get("skill"):
+        return f"Runs the {info['skill']} skill."
+    return ""
+
+
+def scheduled_tasks_snapshot(paths: Paths, force: bool = False) -> dict[str, Any]:
+    """DM-* scheduled tasks for the Board's Scheduled tasks tab. Cached for
+    _SCHED_TTL seconds; pass force=True (or GET ?refresh=1) to re-enumerate."""
+    now = time.time()
+    with _SCHED_LOCK:
+        cached = _SCHED_CACHE.get("data")
+        if cached is not None and not force and (now - _SCHED_CACHE.get("ts", 0.0)) < _SCHED_TTL:
+            return cached
+
+    generated_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    if sys.platform != "win32":
+        result: dict[str, Any] = {
+            "tasks": [], "count": 0, "available": False,
+            "generated_at": generated_at,
+            "note": "Scheduled-task enumeration is only available on Windows.",
+        }
+    else:
+        tasks, error = _run_scheduled_tasks_ps()
+        meta = _scheduled_task_meta(paths)
+        for t in tasks:
+            info = meta.get(str(t.get("name") or ""), {})
+            t["explanation"] = _explain_task(t, info)
+            if info.get("skill"):
+                t["skill"] = info["skill"]
+        result = {
+            "tasks": tasks,
+            "count": len(tasks),
+            "available": error is None,
+            "generated_at": generated_at,
+        }
+        if error:
+            result["error"] = error
+
+    with _SCHED_LOCK:
+        _SCHED_CACHE["data"] = result
+        _SCHED_CACHE["ts"] = now
+    return result
+
+
+# --- My Day --------------------------------------------------------------
+#
+# The My Day tab is the Board's landing view: a summary of today's meetings
+# (read live from Outlook via COM), plus two synthesized lists derived from the
+# same markdown stores the rest of the Board already reads - "needs attention"
+# (overdue/due-today todos, snoozed-past items, 1:1 prep for people Nir is
+# meeting today, recently-changed tracked ADO items, reminders firing today)
+# and "focus today" (a short, ranked shortlist of what to actually do).
+#
+# All of the ranking logic lives in compute_my_day() so it is a pure function
+# of (board snapshot, meetings, reminders, today) and unit-testable without
+# Outlook. Only the calendar read touches COM and it degrades gracefully to an
+# empty meeting list off-Windows or when Outlook is unavailable.
+
+# PowerShell that reads *today's* Outlook calendar and emits one JSON object per
+# appointment. Mirrors the proven Restrict()/olFolderCalendar pattern used by
+# run-reminders.ps1's Resolve-MeetingStart. Date-only DASL boundaries avoid the
+# HH/tt ambiguity; recurrences are expanded so daily/weekly series show up.
+_CALENDAR_PS = r"""
+$ErrorActionPreference = 'Stop'
+$OutputEncoding = [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+try {
+  $app = New-Object -ComObject Outlook.Application
+  $ns  = $app.GetNamespace('MAPI')
+  $cal = $ns.GetDefaultFolder(9)  # olFolderCalendar
+  $start = (Get-Date).Date
+  $end   = $start.AddDays(1)
+  $items = $cal.Items
+  $items.IncludeRecurrences = $true
+  $items.Sort('[Start]')
+  $fmt = "'{0:MM/dd/yyyy}'"
+  $r = ('[Start] < {0} AND [End] > {1}' -f ($fmt -f $end), ($fmt -f $start))
+  $restricted = $items.Restrict($r)
+  $out = @()
+  foreach ($it in $restricted) {
+    try {
+      $subj = if ($it.Subject) { [string]$it.Subject } else { '(no subject)' }
+      $s = [datetime]$it.Start
+      $e = [datetime]$it.End
+      # Skip anything that doesn't actually intersect today (defensive - the
+      # DASL filter is inclusive at the edges for all-day/recurring items).
+      if ($e -le $start -or $s -ge $end) { continue }
+      $loc = ''
+      try { if ($it.Location) { $loc = [string]$it.Location } } catch {}
+      $org = ''
+      try { if ($it.Organizer) { $org = [string]$it.Organizer } } catch {}
+      $allDay = $false
+      try { $allDay = [bool]$it.AllDayEvent } catch {}
+      $resp = 0
+      try { $resp = [int]$it.ResponseStatus } catch {}
+      $busy = 2
+      try { $busy = [int]$it.BusyStatus } catch {}
+      $recur = $false
+      try { $recur = [bool]$it.IsRecurring } catch {}
+      $online = $false
+      try {
+        $hay = ($loc + ' ')
+        try { if ($it.Body) { $hay += [string]$it.Body } } catch {}
+        if ($hay -match 'teams\.microsoft\.com' -or $hay -match 'Microsoft Teams Meeting' -or $hay -match 'zoom\.us') { $online = $true }
+      } catch {}
+      $out += [PSCustomObject]@{
+        subject   = $subj
+        start     = $s.ToString('o')
+        end       = $e.ToString('o')
+        location  = $loc
+        organizer = $org
+        allDay    = $allDay
+        response  = $resp
+        busy      = $busy
+        recurring = $recur
+        online    = $online
+      }
+    } catch { continue }
+  }
+  $out = $out | Sort-Object { [datetime]$_.start }
+  ConvertTo-Json -InputObject @($out) -Depth 4
+} catch {
+  Write-Error $_.Exception.Message
+  exit 3
+}
+"""
+
+# Outlook ResponseStatus / BusyStatus enum -> friendly label.
+_RESP_LABEL = {0: "", 1: "Organizer", 2: "Tentative", 3: "Accepted", 4: "Declined", 5: "Not responded"}
+_BUSY_LABEL = {0: "Free", 1: "Tentative", 2: "Busy", 3: "Out of office", 4: "Working elsewhere"}
+
+
+def _run_calendar_ps() -> tuple[list[dict[str, Any]], str | None]:
+    """Read today's Outlook calendar. Returns (meetings, error). Off-Windows or
+    when Outlook/COM is unavailable, returns ([], <reason>)."""
+    if sys.platform != "win32":
+        return [], "Calendar is only available on Windows (Outlook COM)."
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", _CALENDAR_PS],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=45,
+        )
+    except (OSError, subprocess.SubprocessError) as ex:
+        return [], f"failed to run PowerShell: {ex}"
+    if r.returncode != 0:
+        msg = (r.stderr or "").strip() or f"powershell exited {r.returncode}"
+        return [], msg[:500]
+    out = (r.stdout or "").strip()
+    if not out or out == "null":
+        return [], None
+    try:
+        data = json.loads(out)
+    except ValueError as ex:
+        return [], f"could not parse calendar JSON: {ex}"
+    if isinstance(data, dict):
+        data = [data]
+    if not isinstance(data, list):
+        return [], None
+    return data, None
+
+
+def _get_meetings_cached(force: bool = False) -> tuple[list[dict[str, Any]], bool, str | None]:
+    """Return (meetings, available, error). The raw Outlook read is cached for
+    _CAL_TTL seconds (and invalidated when the day rolls over)."""
+    now = time.time()
+    today = date.today().isoformat()
+    with _CAL_LOCK:
+        fresh = (
+            _CAL_CACHE.get("data") is not None
+            and _CAL_CACHE.get("date") == today
+            and not force
+            and (now - _CAL_CACHE.get("ts", 0.0)) < _CAL_TTL
+        )
+        if fresh:
+            return _CAL_CACHE["data"], _CAL_CACHE.get("available", True), _CAL_CACHE.get("error")
+
+    meetings, error = _run_calendar_ps()
+    available = error is None
+    with _CAL_LOCK:
+        _CAL_CACHE["data"] = meetings
+        _CAL_CACHE["date"] = today
+        _CAL_CACHE["ts"] = now
+        _CAL_CACHE["available"] = available
+        _CAL_CACHE["error"] = error
+    return meetings, available, error
+
+
+_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def _parse_ymd(s: str) -> date | None:
+    """Lenient YYYY-MM-DD extraction. Returns None for '-', '', or free text
+    like 'tomorrow' (those simply don't participate in overdue/due-today math)."""
+    if not s:
+        return None
+    m = _DATE_RE.search(str(s))
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _read_reminders_today(paths: Paths, today: date) -> list[dict[str, Any]]:
+    """Best-effort scan of reports/reminders/reminders.md for *pending*
+    reminders whose fire day is today (absolute 'Fire at' date == today, or a
+    meeting-bound reminder whose 'Meeting date' == today). Exact meeting times
+    need Outlook so we only surface the day match as a heads-up."""
+    md = paths.root / "reports" / "reminders" / "reminders.md"
+    if not md.exists():
+        return []
+    try:
+        text = md.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+    for ln in text.splitlines():
+        h = re.match(r"^###\s+(RM-\d{3})\s*-\s*(.+?)\s*$", ln)
+        if h:
+            if cur:
+                out.append(cur)
+            cur = {"id": h.group(1), "title": h.group(2), "fields": {}}
+            continue
+        if re.match(r"^##\s+", ln) and cur:
+            out.append(cur)
+            cur = None
+            continue
+        if cur:
+            f = re.match(r"^\s*-\s+\*\*([^*]+):\*\*\s*(.*?)\s*$", ln)
+            if f:
+                cur["fields"][f.group(1).strip().lower()] = f.group(2).strip()
+    if cur:
+        out.append(cur)
+
+    today_iso = today.isoformat()
+    hits: list[dict[str, Any]] = []
+    for r in out:
+        fields = r["fields"]
+        if (fields.get("status") or "").lower() != "pending":
+            continue
+        kind = (fields.get("kind") or "").lower()
+        when_label = ""
+        matched = False
+        if kind == "absolute":
+            d = _parse_ymd(fields.get("fire at", ""))
+            if d == today:
+                matched = True
+                when_label = fields.get("fire at", "")
+        elif kind == "meeting":
+            d = _parse_ymd(fields.get("meeting date", ""))
+            if d == today:
+                matched = True
+                subj = fields.get("meeting subject match", "")
+                off = fields.get("offset min", "")
+                when_label = f"~ meeting '{subj}' {off}min" if subj else "today"
+        if matched:
+            hits.append({"id": r["id"], "title": r["title"], "when": when_label, "kind": kind})
+    return hits
+
+
+def _first_name(label: str) -> str:
+    return (label or "").strip().split(" ")[0] if label else ""
+
+
+def _match_meetings_to_partners(meetings: list[dict[str, Any]], one_on_ones: list[dict[str, Any]]) -> None:
+    """Annotate each meeting in-place with is_one_on_one / partner_slug /
+    partner_label / partner_open when its subject clearly names a 1:1 partner."""
+    partners = [p for p in one_on_ones if (p.get("label") or "").strip()]
+    for m in meetings:
+        subj = (m.get("subject") or "").lower()
+        m["is_one_on_one"] = False
+        m["partner_slug"] = ""
+        m["partner_label"] = ""
+        m["partner_open"] = 0
+        if not subj:
+            continue
+        one_on_one_marker = any(tok in subj for tok in ("1:1", "1x1", "1-1", "one on one", "one-on-one"))
+        best = None
+        for p in partners:
+            label = (p.get("label") or "").strip()
+            first = _first_name(label).lower()
+            if not first:
+                continue
+            full_hit = label.lower() in subj
+            word_hit = re.search(r"\b" + re.escape(first) + r"\b", subj) is not None
+            if full_hit or (word_hit and one_on_one_marker):
+                best = p
+                if full_hit:
+                    break
+        if best is not None:
+            m["is_one_on_one"] = True
+            m["partner_slug"] = best.get("slug", "")
+            m["partner_label"] = best.get("label", "")
+            m["partner_open"] = int(best.get("open_count") or 0)
+
+
+def _fmt_time_range(start_iso: str, end_iso: str) -> str:
+    def hm(iso: str) -> str:
+        try:
+            return datetime.fromisoformat(iso).strftime("%H:%M")
+        except (ValueError, TypeError):
+            return ""
+    a, b = hm(start_iso), hm(end_iso)
+    if a and b:
+        return f"{a}\u2013{b}"
+    return a or b or ""
+
+
+def compute_my_day(
+    board: dict[str, Any],
+    meetings: list[dict[str, Any]],
+    reminders: list[dict[str, Any]],
+    today: date,
+) -> dict[str, Any]:
+    """Pure ranking function. Turns the board snapshot + today's meetings +
+    today's reminders into meetings (decorated), a needs_attention list, a focus
+    list, and a small stats block. Deterministic and Outlook-free."""
+    todos = board.get("todos") or []
+    one_on_ones = board.get("one_on_ones") or []
+    ado_items = (board.get("ado_tracker") or {}).get("items") or []
+
+    # --- Decorate + filter meetings ---
+    for m in meetings:
+        m["response_label"] = _RESP_LABEL.get(int(m.get("response") or 0), "")
+        m["busy_label"] = _BUSY_LABEL.get(int(m.get("busy") or 2), "")
+        m["time_label"] = "All day" if m.get("allDay") else _fmt_time_range(m.get("start", ""), m.get("end", ""))
+    # Drop meetings Nir declined - he's not attending those.
+    meetings = [m for m in meetings if int(m.get("response") or 0) != 4]
+    _match_meetings_to_partners(meetings, one_on_ones)
+
+    timed = [m for m in meetings if not m.get("allDay")]
+    first_meeting = timed[0]["time_label"] if timed else ""
+
+    # --- Todo buckets ---
+    def is_active(t: dict[str, Any]) -> bool:
+        return t.get("status") in ("open", "snoozed")
+
+    overdue: list[dict[str, Any]] = []
+    due_today: list[dict[str, Any]] = []
+    snoozed_past: list[dict[str, Any]] = []
+    high_pri: list[dict[str, Any]] = []
+    for t in todos:
+        if not is_active(t):
+            continue
+        due = _parse_ymd(t.get("due", ""))
+        snz = _parse_ymd(t.get("snoozed_until", "")) if t.get("status") == "snoozed" else None
+        if due and due < today:
+            overdue.append(t)
+        elif due and due == today:
+            due_today.append(t)
+        elif snz and snz <= today:
+            snoozed_past.append(t)
+        elif (t.get("priority") or "").upper() == "H":
+            high_pri.append(t)
+
+    def _due_key(t: dict[str, Any]) -> str:
+        d = _parse_ymd(t.get("due", ""))
+        return d.isoformat() if d else "9999-99-99"
+
+    overdue.sort(key=_due_key)
+
+    # --- Needs attention ---------------------------------------------------
+    needs: list[dict[str, Any]] = []
+    for t in overdue:
+        needs.append({
+            "text": f"{t['id']} overdue (due {t.get('due')}): {t.get('title')}",
+            "tag": "Overdue", "tone": "danger", "tab": "todos", "ref": t["id"],
+        })
+    for t in due_today:
+        needs.append({
+            "text": f"{t['id']} due today: {t.get('title')}",
+            "tag": "Due today", "tone": "warning", "tab": "todos", "ref": t["id"],
+        })
+    for t in snoozed_past:
+        needs.append({
+            "text": f"{t['id']} snooze elapsed ({t.get('snoozed_until')}): {t.get('title')}",
+            "tag": "Snoozed", "tone": "warning", "tab": "todos", "ref": t["id"],
+        })
+    # 1:1 prep for people Nir is meeting today.
+    seen_partner_prep: set[str] = set()
+    for m in timed:
+        if m.get("is_one_on_one") and m.get("partner_open") and m["partner_slug"] not in seen_partner_prep:
+            seen_partner_prep.add(m["partner_slug"])
+            n = m["partner_open"]
+            needs.append({
+                "text": f"1:1 with {m['partner_label']} today \u2014 {n} open item{'s' if n != 1 else ''} to raise",
+                "tag": "1:1 prep", "tone": "accent", "tab": "one-on-ones", "ref": m["partner_slug"],
+            })
+    # Recently-changed tracked ADO items (within 2 days).
+    for it in ado_items:
+        cd = _parse_ymd(it.get("changed_date", ""))
+        if cd and (today - cd).days <= 2:
+            title = it.get("title") or f"Work item {it.get('id')}"
+            state = it.get("state") or ""
+            suffix = f" [{state}]" if state else ""
+            needs.append({
+                "text": f"ADO {it.get('id')} changed {it.get('changed_date')}: {title}{suffix}",
+                "tag": "ADO", "tone": "neutral", "tab": "ado-tracker", "ref": str(it.get("id")),
+            })
+    # Reminders firing today.
+    for r in reminders:
+        when = f" ({r['when']})" if r.get("when") else ""
+        needs.append({
+            "text": f"Reminder {r['id']}: {r['title']}{when}",
+            "tag": "Reminder", "tone": "accent", "tab": None, "ref": r["id"],
+        })
+
+    # --- Focus today -------------------------------------------------------
+    # Ranked shortlist: overdue -> due-today -> 1:1 prep -> high priority.
+    focus: list[dict[str, Any]] = []
+    focus_ids: set[str] = set()
+
+    def _add_focus(key: str, text: str, tag: str, tone: str, tab: str | None, ref: str) -> None:
+        if key in focus_ids:
+            return
+        focus_ids.add(key)
+        focus.append({"text": text, "tag": tag, "tone": tone, "tab": tab, "ref": ref})
+
+    for t in overdue:
+        _add_focus(t["id"], f"{t.get('title')} ({t['id']}, overdue)", "Overdue", "danger", "todos", t["id"])
+    for t in due_today:
+        _add_focus(t["id"], f"{t.get('title')} ({t['id']}, due today)", "Due today", "warning", "todos", t["id"])
+    for m in timed:
+        if m.get("is_one_on_one") and m.get("partner_open"):
+            key = f"prep:{m['partner_slug']}"
+            _add_focus(key, f"Prep 1:1 with {m['partner_label']} ({m['partner_open']} open)",
+                       "1:1 prep", "accent", "one-on-ones", m["partner_slug"])
+    for t in high_pri:
+        _add_focus(t["id"], f"{t.get('title')} ({t['id']}, high priority)", "High", "neutral", "todos", t["id"])
+    focus = focus[:6]
+
+    stats = {
+        "meetings": len(meetings),
+        "meetings_timed": len(timed),
+        "first_meeting": first_meeting,
+        "overdue": len(overdue),
+        "due_today": len(due_today),
+        "snoozed_past": len(snoozed_past),
+        "needs_attention": len(needs),
+        "focus": len(focus),
+        "reminders": len(reminders),
+    }
+    return {"meetings": meetings, "needs_attention": needs, "focus": focus, "stats": stats}
+
+
+def my_day_snapshot(paths: Paths, force: bool = False) -> dict[str, Any]:
+    """Assemble the /api/my-day payload: today's (cached) meetings + freshly
+    recomputed needs-attention / focus from the current board snapshot."""
+    today = date.today()
+    meetings, cal_available, cal_error = _get_meetings_cached(force=force)
+    try:
+        board = board_snapshot(paths)
+    except Exception as ex:  # pragma: no cover - defensive
+        board = {"todos": [], "one_on_ones": [], "ado_tracker": {"items": []}, "error": str(ex)}
+    reminders = _read_reminders_today(paths, today)
+    computed = compute_my_day(board, list(meetings), reminders, today)
+
+    generated_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    result: dict[str, Any] = {
+        "today": today.isoformat(),
+        "weekday": today.strftime("%A"),
+        "meetings": computed["meetings"],
+        "needs_attention": computed["needs_attention"],
+        "focus": computed["focus"],
+        "reminders": reminders,
+        "stats": computed["stats"],
+        "calendar_available": cal_available,
+        "generated_at": generated_at,
+    }
+    if cal_error:
+        result["calendar_error"] = cal_error
+    return result
+
+
+def ping_ado_owner(paths: Paths, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /api/ado-tracker/ping  body={id:int}
+    Fire-and-forget spawn of run-ado-item-tracker.ps1 -Mode ping -Id <id>, which
+    emails the work item's owner (on Nir's behalf). Returns immediately; the
+    runner logs to reports/logs/ and refuses unassigned / external owners."""
+    wid = payload.get("id")
+    try:
+        wid_int = int(wid)
+    except (TypeError, ValueError):
+        return 400, {"error": "id must be an integer"}
+    if wid_int <= 0:
+        return 400, {"error": "id must be a positive integer"}
+    runner = paths.ado_tracker_runner
+    if not runner.exists():
+        return 500, {"error": f"runner missing: {runner}"}
+    args = ["pwsh", "-NoProfile", "-File", str(runner), "-Mode", "ping", "-Id", str(wid_int)]
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    detached_flags = (
+        no_window |
+        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200) |
+        getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
+    )
+    sys.stderr.write(f"[board] spawn ado-tracker ping id={wid_int}\n")
+    sys.stderr.flush()
+    try:
+        proc = subprocess.Popen(args, cwd=str(paths.root),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                creationflags=detached_flags)
+        sys.stderr.write(f"[board] spawned ado-tracker ping pid={proc.pid} id={wid_int}\n")
+        sys.stderr.flush()
+    except OSError as ex:
+        return 500, {"error": f"failed to spawn ping runner: {ex}"}
+    return 202, {"id": wid_int, "spawned": True}
+
+
 # --- HTTP handler --------------------------------------------------------
 
 class BoardHandler(BaseHTTPRequestHandler):
@@ -838,6 +1595,19 @@ class BoardHandler(BaseHTTPRequestHandler):
             if p == "/api/sdk-rotation":
                 self._write_json(200, sdk_rotation_snapshot(self.paths))
                 return
+            if p == "/api/ado-tracker":
+                self._write_json(200, ado_tracker_snapshot(self.paths))
+                return
+            if p == "/api/scheduled-tasks":
+                q = parse_qs(urlparse(path).query)
+                force = (q.get("refresh", ["0"])[0]).lower() not in ("0", "", "false", "no")
+                self._write_json(200, scheduled_tasks_snapshot(self.paths, force=force))
+                return
+            if p == "/api/my-day":
+                q = parse_qs(urlparse(path).query)
+                force = (q.get("refresh", ["0"])[0]).lower() not in ("0", "", "false", "no")
+                self._write_json(200, my_day_snapshot(self.paths, force=force))
+                return
             # Explorer artifact (single-file HTML built by the nirvana-site skill).
             # Path is fixed to reports/site/nirvana.html so the same bytes Nir
             # gets via `open the nirvana site` are served here under /explorer.
@@ -871,6 +1641,10 @@ class BoardHandler(BaseHTTPRequestHandler):
                     return
                 if p == "/api/ai-plan":
                     status, body = add_ai_plan(self.paths, payload)
+                    self._write_json(status, body)
+                    return
+                if p == "/api/ado-tracker/ping":
+                    status, body = ping_ado_owner(self.paths, payload)
                     self._write_json(status, body)
                     return
                 m = re.fullmatch(r"/api/one-on-ones/([^/]+)", p)
@@ -981,3 +1755,4 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -156,6 +156,7 @@ foreach ($alias in $aliasToFile.Keys) {
     $current[$alias] = [pscustomobject]@{ on_vacation = $false; start = $null; end = $null; returned_today = $false; confidence = 'low' }
 }
 $unmatched = @()
+$recurringByAlias = @{}
 foreach ($p in @($wq.people)) {
     $name = "$($p.name)"
     $alias = Resolve-AliasFromName -Name $name -DisplayToAlias $displayToAlias
@@ -163,6 +164,17 @@ foreach ($p in @($wq.people)) {
     $onVac = $false; try { $onVac = [bool]$p.on_vacation } catch { $onVac = $false }
     $rt = $false; try { $rt = [bool]$p.returned_today } catch { $rt = $false }
     $conf = 'low'; try { if ($p.confidence) { $conf = "$($p.confidence)" } } catch {}
+    # Recurring weekly OOF weekdays (0=Sun..6=Sat) from the free/busy reader. Parsed
+    # defensively: ConvertTo-Json may emit a scalar for a single-element array, so @() it.
+    $roff = @()
+    try {
+        if (($p.PSObject.Properties.Name -contains 'recurring_off_days') -and $null -ne $p.recurring_off_days) {
+            foreach ($v in @($p.recurring_off_days)) {
+                $iv = 0; if ([int]::TryParse("$v", [ref]$iv)) { $roff += $iv }
+            }
+        }
+    } catch { $roff = @() }
+    $recurringByAlias[$alias] = @($roff)
     $current[$alias] = [pscustomobject]@{
         on_vacation = $onVac
         start = $(if ($p.start) { "$($p.start)" } else { $null })
@@ -296,34 +308,57 @@ foreach ($alias in ($aliasToFile.Keys | Sort-Object)) {
     }
     if ($recentPending -and -not $Force) { continue }
 
+    # Vacation span for the min-working-days gate. Prefer the CURRENT read's start/end (the
+    # free/busy decoder now reports the just-ended OOF run on the return day, including via the
+    # explicit returned_today path) and fall back to the PRIOR snapshot's span (the classic
+    # transition, where the current not-on-vacation read carries no span). Sourcing the span
+    # from the current read is what lets the gate measure an explicit return: that path was
+    # previously span-less and bypassed the gate, so a 1-working-day absence got welcomed.
     $vacStart = $null
     $vacEnd = $null
     $vacDays = $null
     $vacWorkDays = $null
-    if ($null -ne $prior) {
-        try { if ($prior.start) { $vacStart = "$($prior.start)" } } catch {}
-        try { if ($prior.end) { $vacEnd = "$($prior.end)" } } catch {}
-        if (-not [string]::IsNullOrWhiteSpace($vacStart) -and -not [string]::IsNullOrWhiteSpace($vacEnd)) {
-            $startDate = [datetime]::MinValue
-            $endDate = [datetime]::MinValue
-            if ([datetime]::TryParse($vacStart, [ref]$startDate) -and [datetime]::TryParse($vacEnd, [ref]$endDate)) {
-                $vacDays = [int]($endDate.Date - $startDate.Date).Days + 1
-                $vacWorkDays = Get-WorkingDayCount -Start $startDate -End $endDate
-            }
+    foreach ($src in @($cur, $prior)) {
+        if ($null -eq $src) { continue }
+        $sStart = $null; $sEnd = $null
+        try { if ($src.start) { $sStart = "$($src.start)" } } catch {}
+        try { if ($src.end) { $sEnd = "$($src.end)" } } catch {}
+        if (-not [string]::IsNullOrWhiteSpace($sStart) -and -not [string]::IsNullOrWhiteSpace($sEnd)) {
+            $vacStart = $sStart; $vacEnd = $sEnd; break
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($vacStart) -and -not [string]::IsNullOrWhiteSpace($vacEnd)) {
+        $startDate = [datetime]::MinValue
+        $endDate = [datetime]::MinValue
+        if ([datetime]::TryParse($vacStart, [ref]$startDate) -and [datetime]::TryParse($vacEnd, [ref]$endDate)) {
+            $vacDays = [int]($endDate.Date - $startDate.Date).Days + 1
+            # Count only UNEXPECTED working days: subtract this person's recurring weekly
+            # OOF weekdays (e.g. a standing Wednesday off) from the Israel working-day set.
+            # Without this, a recurring day-off that happened to sit next to one more OOF
+            # weekday (Tue+Wed) counted as 2 working days and wrongly fired a welcome-back
+            # every week; now only genuinely-unexpected absence counts toward the gate.
+            $recurringOff = @()
+            if ($recurringByAlias.ContainsKey($alias)) { $recurringOff = @($recurringByAlias[$alias]) }
+            $effectiveWorking = Get-EffectiveWorkingDays -RecurringOff $recurringOff
+            $vacWorkDays = Get-WorkingDayCount -Start $startDate -End $endDate -WorkingDays $effectiveWorking
         }
     }
 
     # Minimum-working-days gate (Nir's rule): only welcome someone back if the vacation
     # cost at least $MinWorkingDaysForWelcome Israel working days (Sun-Thu). This silently
-    # drops weekend-only absences (Fri/Sat -> 0 working days) and one-working-day absences
-    # flanked by the weekend (e.g. Thu+Fri+Sat -> 1 working day). When the span is unknown
-    # (no prior start/end, e.g. a first-run explicit return) we cannot measure it, so we do
+    # drops weekend-only absences (Fri/Sat -> 0 working days) and one-working-day absences,
+    # whether flanked by the weekend (e.g. Thu+Fri+Sat -> 1 working day) or detected via the
+    # explicit returned_today free/busy path (the decoder now reports the just-ended OOF run,
+    # so $vacWorkDays is populated even there). When the span is genuinely unknown (no current
+    # AND no prior start/end, e.g. a first-run explicit return) we cannot measure it, so we do
     # NOT suppress -- never swallow a genuine return just because its length is unknown.
     if ($null -ne $vacWorkDays -and $vacWorkDays -lt $MinWorkingDaysForWelcome) {
         continue
     }
 
     $first = (Get-Culture).TextInfo.ToTitleCase($alias.Split('-')[0])
+    $recurringOffOut = @()
+    if ($recurringByAlias.ContainsKey($alias)) { $recurringOffOut = @($recurringByAlias[$alias]) }
     $returnees += [pscustomobject]@{
         alias = $alias
         first_name = $first
@@ -333,6 +368,7 @@ foreach ($alias in ($aliasToFile.Keys | Sort-Object)) {
         vac_end = $vacEnd
         vac_days = $vacDays
         vac_work_days = $vacWorkDays
+        vac_recurring_off = @($recurringOffOut)
     }
 
     # Append a 'pending' claim (unless DryRun).

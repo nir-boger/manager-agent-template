@@ -334,7 +334,7 @@
         "kind": "weekly",
         "time": "16:00",
         "days": [
-          "Friday"
+          "Thursday"
         ]
       }
     },
@@ -455,6 +455,46 @@
       "schedule": {
         "kind": "daily",
         "time": "05:30"
+      }
+    },
+    {
+      "suffix": "AdoTrackerDigest",
+      "skill": "ado-item-tracker",
+      "runner": ".copilot/skills/run-ado-item-tracker.ps1",
+      "args": [
+        "-Mode",
+        "digest"
+      ],
+      "enabled": true,
+      "manage": true,
+      "execution_time_limit": "PT15M",
+      "schedule": {
+        "kind": "weekly",
+        "time": "09:00",
+        "days": [
+          "Sunday",
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday"
+        ]
+      }
+    },
+    {
+      "suffix": "AdoTrackerWatch",
+      "skill": "ado-item-tracker",
+      "runner": ".copilot/skills/run-ado-item-tracker.ps1",
+      "args": [
+        "-Mode",
+        "watch"
+      ],
+      "enabled": true,
+      "manage": true,
+      "schedule": {
+        "kind": "interval",
+        "time": "07:23",
+        "every": "PT1H",
+        "duration": "P3650D"
       }
     }
   ]

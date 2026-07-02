@@ -138,6 +138,12 @@ reports/personas-archive/
 # preview HTML). Regenerated from ADO every run. Never commit.
 .copilot/skills/sprint-digest/state/
 
+# ado-item-tracker skill — runtime state (diff baseline, per-day digest idempotency,
+# preview HTML) + the board-facing live cache. The tracked SET
+# (reports/ado-tracker/tracked.json) IS tracked; cache.json is regenerated from ADO.
+.copilot/skills/ado-item-tracker/state/
+reports/ado-tracker/cache.json
+
 # team-brief skill (DM-TeamBriefDaily / DM-TeamWeeklyHighlights) — runtime state +
 # rendered output that embed paraphrased M365 (Teams + email) content via WorkIQ.
 #   state/: enrichment.json (WorkIQ-sourced per-person Teams/email/weekly prose) +
@@ -146,6 +152,12 @@ reports/personas-archive/
 # Never commit either.
 .copilot/skills/team-brief/state/
 reports/team-brief/
+
+# pr-review-request runner state — posted.json (per-PR dedup / idempotency),
+# review-stats.json (rolling p50 baseline samples), baseline.txt (eligibility
+# anchor). Rewritten every 5-min tick; NOT source of truth. Must stay untracked
+# so a git reset/checkout can't revert the dedup store and re-announce active PRs.
+.copilot/skills/pr-review-request/state/
 
 # Python bytecode caches (any skill).
 .copilot/skills/**/__pycache__/

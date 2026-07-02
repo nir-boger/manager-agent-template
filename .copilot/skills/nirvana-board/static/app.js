@@ -9,7 +9,7 @@ const ASCII =
 
 const STATE = {
   board: null,
-  tab: "todos",                 // "todos" | "agenda" | "one-on-ones"
+  tab: "my-day",                // "my-day" | "todos" | "agenda" | "one-on-ones" | ...
   partner: null,                // slug when tab == one-on-ones
   filter: "open",               // "open" | "all"
   loading: false,
@@ -17,6 +17,17 @@ const STATE = {
   // Survive renders + tab switches. Cleared on successful Send/Save.
   summaryDrafts: {},            // slug -> in-flight "Send 1:1 summary" text
   notesDrafts: {},              // slug -> in-flight "Personal notes" text
+  // Scheduled tasks are lazy-loaded (a ~2s PowerShell enumeration) separately
+  // from /api/board so the main board stays snappy. null = not fetched yet.
+  scheduledTasks: null,
+  scheduledLoading: false,
+  // My Day is the landing view. It carries today's meetings (a ~1-2s Outlook
+  // read) plus server-computed needs-attention / focus lists, so like the
+  // scheduled tasks it lives behind its own /api/my-day endpoint. null = not
+  // fetched yet; we keep the last payload across refreshes so the tab never
+  // flashes an empty skeleton once it has loaded.
+  myDay: null,
+  myDayLoading: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -82,9 +93,17 @@ function setTab(tab) {
   });
   const partnerSec = $("partner-section");
   partnerSec.style.display = tab === "one-on-ones" ? "" : "none";
-  // Hide + Add on scope-board / sdk-rotation (no add-row support yet).
+  // Hide + Add on read-only tabs (my-day / scope-board / sdk-rotation /
+  // ado-tracker / scheduled-tasks have no add-row support).
   const addBtn = $("add-btn");
-  if (addBtn) addBtn.style.display = (tab === "scope-board" || tab === "sdk-rotation") ? "none" : "";
+  if (addBtn) addBtn.style.display = (tab === "my-day" || tab === "scope-board" || tab === "sdk-rotation" || tab === "ado-tracker" || tab === "scheduled-tasks") ? "none" : "";
+  // My Day + Scheduled tasks are lazy-loaded on first visit.
+  if (tab === "my-day" && STATE.myDay === null && !STATE.myDayLoading) {
+    loadMyDay(false);
+  }
+  if (tab === "scheduled-tasks" && STATE.scheduledTasks === null && !STATE.scheduledLoading) {
+    loadScheduledTasks(false);
+  }
   render();
 }
 
@@ -106,6 +125,8 @@ function setFilter(f) {
 
 function renderCounts() {
   const b = STATE.board;
+  const mdEl = $("count-my-day");
+  if (mdEl) mdEl.textContent = (STATE.myDay && STATE.myDay.stats && STATE.myDay.stats.needs_attention != null) ? STATE.myDay.stats.needs_attention : "-";
   if (!b) return;
   $("count-todos").textContent = b.counts.todos_open;
   $("count-agenda").textContent = b.counts.agenda_open;
@@ -116,6 +137,10 @@ function renderCounts() {
   if (sbEl) sbEl.textContent = (b.counts && b.counts.scope_board_rows != null) ? b.counts.scope_board_rows : "-";
   const sdkEl = $("count-sdk-rotation");
   if (sdkEl) sdkEl.textContent = (b.counts && b.counts.sdk_rotation_rows != null) ? b.counts.sdk_rotation_rows : "-";
+  const adoEl = $("count-ado-tracker");
+  if (adoEl) adoEl.textContent = (b.counts && b.counts.ado_tracker != null) ? b.counts.ado_tracker : "-";
+  const schedEl = $("count-scheduled-tasks");
+  if (schedEl) schedEl.textContent = (STATE.scheduledTasks && STATE.scheduledTasks.count != null) ? STATE.scheduledTasks.count : "-";
 
   const partnerList = $("partner-list");
   partnerList.innerHTML = "";
@@ -246,6 +271,17 @@ function cardClosedStyle(item, opts) {
 function renderCards() {
   const host = $("cards-host");
   const b = STATE.board;
+
+  if (STATE.tab === "my-day") {
+    const today = STATE.myDay && STATE.myDay.weekday ? `${STATE.myDay.weekday}, ${STATE.myDay.today}` : "today";
+    $("view-title").textContent = "My Day";
+    $("view-subtitle").innerHTML = `Meetings, what needs your attention, and what to focus on &mdash; ${escHtml(today)}.`;
+    $("crumb-tab").textContent = "My Day";
+    $("crumb-tail").textContent = "";
+    host.innerHTML = renderMyDay(STATE.myDay);
+    return;
+  }
+
   if (!b) { host.innerHTML = ""; return; }
   let items = [];
   let html = "";
@@ -322,6 +358,21 @@ function renderCards() {
     $("crumb-tail").textContent = "";
     host.innerHTML = renderSdkRotation(rot);
     wireSdkRotationEditors(host);
+    return;
+  } else if (STATE.tab === "ado-tracker") {
+    const t = b.ado_tracker || { items: [], path: "reports/ado-tracker/tracked.json", exists: false, count: 0 };
+    $("view-title").textContent = "ADO Tracker";
+    $("view-subtitle").innerHTML = `Source: <code>${escHtml(t.path || "reports/ado-tracker/tracked.json")}</code>`;
+    $("crumb-tab").textContent = "ADO Tracker";
+    $("crumb-tail").textContent = "";
+    host.innerHTML = renderAdoTracker(t);
+    return;
+  } else if (STATE.tab === "scheduled-tasks") {
+    $("view-title").textContent = "Scheduled tasks";
+    $("view-subtitle").innerHTML = `Source: <code>Get-ScheduledTask -TaskName 'DM-*'</code> (Windows Task Scheduler)`;
+    $("crumb-tab").textContent = "Scheduled tasks";
+    $("crumb-tail").textContent = "";
+    host.innerHTML = renderScheduledTasks(STATE.scheduledTasks);
     return;
   }
   host.innerHTML = html;
@@ -913,6 +964,326 @@ async function commitSdkOrder(order) {
 }
 
 
+// ---- ADO Tracker tab ---------------------------------------------------
+
+function adoStateClass(state) {
+  const s = String(state || "").trim().toLowerCase();
+  if (/^(done|closed|resolved|completed)$/.test(s)) return "done";
+  if (/^(removed|cut)$/.test(s)) return "removed";
+  if (/^(to do|new|proposed|open|approved|backlog)$/.test(s)) return "notstarted";
+  return "inprogress";
+}
+
+function adoStatusPill(state) {
+  const palette = {
+    done: ["#e6f4ea", "#137333"],
+    inprogress: ["#e8f0fe", "#1967d2"],
+    notstarted: ["#f1f3f4", "#5f6368"],
+    removed: ["#fce8e6", "#c5221f"],
+  };
+  const [bg, fg] = palette[adoStateClass(state)];
+  const label = escHtml(state) || "&mdash;";
+  return `<span style="display:inline-block;padding:2px 9px;border-radius:11px;font-size:12px;font-weight:600;background:${bg};color:${fg}">${label}</span>`;
+}
+
+function adoRelative(iso) {
+  if (!iso) return "&mdash;";
+  const dt = new Date(iso);
+  if (isNaN(dt.getTime())) return "&mdash;";
+  const mins = (Date.now() - dt.getTime()) / 60000;
+  if (mins < 0) return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (mins < 60) return `${Math.max(1, Math.round(mins))}m ago`;
+  if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
+  if (mins < 10080) return `${Math.round(mins / 1440)}d ago`;
+  return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function renderAdoTracker(t) {
+  if (t && t.error) {
+    return `<div class="empty">Failed to read tracker: ${escHtml(t.error)}</div>`;
+  }
+  const items = (t && t.items) || [];
+  if (!items.length) {
+    return `<div class="empty">Not tracking any ADO items yet. In chat, say <code>track ADO &lt;id&gt;</code>.</div>`;
+  }
+  const gen = t.generated_at
+    ? `Live fields synced ${adoRelative(t.generated_at)}.`
+    : "Live fields not synced yet \u2014 they refresh on the hourly watch / daily digest.";
+  const banner = `<div class="sb-banner"><b>Watchlist.</b> Add or remove by chat (<span class="mono">track ADO &lt;id&gt;</span> / <span class="mono">untrack ADO &lt;id&gt;</span>). ${gen}</div>`;
+  const rows = items.map((it) => {
+    const url = escHtml(it.url);
+    const idChip = `<a href="${url}" target="_blank" rel="noopener" class="mono" style="color:#1967d2;text-decoration:none;white-space:nowrap">#${escHtml(it.id)}</a>`;
+    let title = `<a href="${url}" target="_blank" rel="noopener" style="font-weight:600;text-decoration:none">${escHtml(it.title) || "(unsynced \u2014 title pending)"}</a>`;
+    if (it.note) title += `<div style="color:#5f6368;font-size:12px;margin-top:2px">${escHtml(it.note)}</div>`;
+    const owner = it.owner ? escHtml(it.owner) : `<span style="color:#c5221f">Unassigned</span>`;
+    const ping = it.can_ping
+      ? `<button type="button" class="ghost" data-act="ping-owner" data-id="${escHtml(it.id)}" title="Email ${escHtml(it.owner)} for a status update">Ping owner</button>`
+      : `<button type="button" class="ghost" disabled title="No @microsoft.com owner to ping">Ping owner</button>`;
+    return `<tr>
+      <td>${idChip}</td>
+      <td>${title}</td>
+      <td>${escHtml(it.type)}</td>
+      <td>${owner}</td>
+      <td>${adoStatusPill(it.state)}</td>
+      <td style="color:#5f6368;white-space:nowrap">${adoRelative(it.changed_date)}</td>
+      <td style="text-align:right">${ping}</td>
+    </tr>`;
+  }).join("");
+  return banner + `
+    <section class="sb-section">
+      <table class="sb-table">
+        <thead><tr><th>Item</th><th>Title</th><th>Type</th><th>Owner</th><th>Status</th><th>Updated</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>`;
+}
+
+async function pingAdoOwner(id, btn) {
+  if (!id) return;
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Pinging\u2026";
+  try {
+    await api("/api/ado-tracker/ping", { method: "POST", body: JSON.stringify({ id: Number(id) }) });
+    toast(`Status-check sent to the owner of #${id}`, "success");
+    btn.textContent = "Pinged \u2713";
+    setTimeout(() => { btn.disabled = false; btn.textContent = prev; }, 4000);
+  } catch (e) {
+    toast("Ping failed: " + e.message, "error");
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+}
+
+// ---- My Day tab -------------------------------------------------------
+// The landing view. Today's Outlook meetings + two server-computed lists:
+// "needs attention" (overdue/due-today todos, snoozed-past items, 1:1 prep,
+// recently-changed tracked ADO items, reminders firing today) and "focus
+// today" (a short ranked shortlist). Lazy-loaded from /api/my-day (a ~1-2s
+// Outlook read, cached server-side) so the board stays fast; the last payload
+// is kept across refreshes so the tab never flashes empty once loaded.
+
+async function loadMyDay(force) {
+  if (STATE.myDayLoading) return;
+  STATE.myDayLoading = true;
+  try {
+    STATE.myDay = await api("/api/my-day" + (force ? "?refresh=1" : ""));
+  } catch (e) {
+    // Keep any previous payload; only synthesize an error shell on first load.
+    if (STATE.myDay === null) {
+      STATE.myDay = { meetings: [], needs_attention: [], focus: [], stats: {}, calendar_available: false, error: e.message };
+    }
+  } finally {
+    STATE.myDayLoading = false;
+    renderCounts();
+    if (STATE.tab === "my-day") renderCards();
+  }
+}
+
+const MYDAY_TONE_CLASS = {
+  danger: "bad", warning: "snoozed", accent: "kind", neutral: "neutral", good: "good",
+};
+
+function mydayToneClass(tone) {
+  return MYDAY_TONE_CLASS[tone] || "subtle";
+}
+
+// A meeting is "now" if the local clock sits inside [start, end).
+function meetingIsNow(m) {
+  try {
+    const now = Date.now();
+    return new Date(m.start).getTime() <= now && now < new Date(m.end).getTime();
+  } catch { return false; }
+}
+
+function renderMeetingRow(m) {
+  const now = meetingIsNow(m);
+  const tags = [];
+  if (m.is_one_on_one) tags.push(`<span class="pill kind">1:1</span>`);
+  if (m.online) tags.push(`<span class="pill subtle">online</span>`);
+  if (m.busy_label === "Out of office") tags.push(`<span class="pill subtle">OOF</span>`);
+  if (m.response_label === "Tentative" || m.response_label === "Not responded") {
+    tags.push(`<span class="pill subtle" title="Your response: ${escHtml(m.response_label)}">${escHtml(m.response_label.toLowerCase())}</span>`);
+  }
+  const loc = m.location ? `<span class="myday-mtg-loc">${escHtml(m.location)}</span>` : "";
+  const prep = (m.is_one_on_one && m.partner_open)
+    ? `<button type="button" class="linklike" data-act="goto" data-tab="one-on-ones" data-ref="${escHtml(m.partner_slug)}">${m.partner_open} to raise &rarr;</button>`
+    : "";
+  return `<div class="myday-mtg${now ? " is-now" : ""}">
+    <div class="myday-mtg-time">${escHtml(m.time_label || "")}${now ? `<span class="myday-now">now</span>` : ""}</div>
+    <div class="myday-mtg-body">
+      <div class="myday-mtg-subj">${escHtml(m.subject || "(no subject)")} ${tags.join(" ")}</div>
+      <div class="myday-mtg-meta">${loc}${prep}</div>
+    </div>
+  </div>`;
+}
+
+function renderSuggestionRow(s) {
+  const cls = mydayToneClass(s.tone);
+  const clickable = s.tab ? ` data-act="goto" data-tab="${escHtml(s.tab)}"${s.ref ? ` data-ref="${escHtml(s.ref)}"` : ""}` : "";
+  const cursor = s.tab ? " is-clickable" : "";
+  return `<div class="myday-item${cursor}"${clickable}>
+    <span class="pill ${cls}">${escHtml(s.tag || "")}</span>
+    <span class="myday-item-text">${escHtml(s.text || "")}</span>
+  </div>`;
+}
+
+function renderMyDay(data) {
+  if (data === null) {
+    return `<div class="empty">Loading your day&hellip; <span class="mono">(reading today's calendar)</span></div>`;
+  }
+  const stats = data.stats || {};
+  const meetings = data.meetings || [];
+  const needs = data.needs_attention || [];
+  const focus = data.focus || [];
+
+  // Hero strip: a one-line headline + a small stat grid.
+  const bits = [];
+  bits.push(`${stats.meetings || 0} meeting${(stats.meetings === 1) ? "" : "s"}`);
+  if (stats.first_meeting) bits.push(`first at ${escHtml(stats.first_meeting.split("\u2013")[0])}`);
+  if (stats.needs_attention) bits.push(`${stats.needs_attention} need${stats.needs_attention === 1 ? "s" : ""} attention`);
+  const gen = data.generated_at ? `Updated ${adoRelative(data.generated_at)}.` : "";
+  const hero = `<div class="myday-hero">
+    <div class="myday-headline">${escHtml(bits.join(" \u00b7 "))}</div>
+    <div class="myday-stats">
+      <span class="myday-stat"><b>${stats.meetings || 0}</b> meetings</span>
+      <span class="myday-stat"><b>${stats.overdue || 0}</b> overdue</span>
+      <span class="myday-stat"><b>${stats.due_today || 0}</b> due today</span>
+      <span class="myday-stat"><b>${focus.length}</b> to focus</span>
+      <span class="myday-gen">${gen} <button type="button" class="ghost" data-act="reload-myday">Refresh</button></span>
+    </div>
+  </div>`;
+
+  // Meetings column.
+  let mtgHtml;
+  if (data.calendar_available === false) {
+    mtgHtml = `<div class="myday-note">${escHtml(data.calendar_error || data.error || "Calendar unavailable (Outlook not reachable).")}</div>`;
+  } else if (!meetings.length) {
+    mtgHtml = `<div class="myday-note">No meetings on the calendar today. Enjoy the focus time.</div>`;
+  } else {
+    mtgHtml = meetings.map(renderMeetingRow).join("");
+  }
+
+  const needsHtml = needs.length
+    ? needs.map(renderSuggestionRow).join("")
+    : `<div class="myday-note">Nothing flagged &mdash; no overdue items, no prep due. Nice.</div>`;
+
+  const focusHtml = focus.length
+    ? focus.map((f, i) => {
+        const cls = mydayToneClass(f.tone);
+        const clickable = f.tab ? ` data-act="goto" data-tab="${escHtml(f.tab)}"${f.ref ? ` data-ref="${escHtml(f.ref)}"` : ""}` : "";
+        const cursor = f.tab ? " is-clickable" : "";
+        return `<div class="myday-focus${cursor}"${clickable}>
+          <span class="myday-focus-rank">${i + 1}</span>
+          <span class="myday-focus-text">${escHtml(f.text || "")}</span>
+          <span class="pill ${cls}">${escHtml(f.tag || "")}</span>
+        </div>`;
+      }).join("")
+    : `<div class="myday-note">No must-dos surfaced. Pick a high-priority todo or prep an upcoming 1:1.</div>`;
+
+  return hero + `
+    <div class="myday-grid">
+      <section class="myday-col myday-col-wide">
+        <h3 class="myday-h">Today's meetings <span class="myday-count">${meetings.length}</span></h3>
+        <div class="myday-meetings">${mtgHtml}</div>
+      </section>
+      <section class="myday-col">
+        <h3 class="myday-h">Needs your attention <span class="myday-count">${needs.length}</span></h3>
+        <div class="myday-list">${needsHtml}</div>
+        <h3 class="myday-h" style="margin-top:1.1rem">Focus today <span class="myday-count">${focus.length}</span></h3>
+        <div class="myday-list">${focusHtml}</div>
+      </section>
+    </div>`;
+}
+
+// ---- Scheduled tasks tab ----------------------------------------------
+// Read-only view of the DM-* Windows Scheduled Tasks that fire Nirvana's
+// skills unattended. Lazy-loaded from /api/scheduled-tasks (a ~2s PowerShell
+// enumeration) so the main board stays fast.
+
+async function loadScheduledTasks(force) {
+  if (STATE.scheduledLoading) return;
+  STATE.scheduledLoading = true;
+  try {
+    STATE.scheduledTasks = await api("/api/scheduled-tasks" + (force ? "?refresh=1" : ""));
+  } catch (e) {
+    STATE.scheduledTasks = { tasks: [], count: 0, available: true, error: e.message };
+  } finally {
+    STATE.scheduledLoading = false;
+    renderCounts();
+    if (STATE.tab === "scheduled-tasks") renderCards();
+  }
+}
+
+function schedFmtDateTime(iso) {
+  if (!iso) return `<span style="color:var(--cp-text-muted)">&mdash;</span>`;
+  const dt = new Date(iso);
+  if (isNaN(dt.getTime())) return `<span style="color:var(--cp-text-muted)">&mdash;</span>`;
+  return escHtml(dt.toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  }));
+}
+
+function schedStatePill(state) {
+  const s = String(state || "").trim().toLowerCase();
+  if (s === "ready")    return `<span class="pill good">Ready</span>`;
+  if (s === "running")  return `<span class="pill neutral">Running</span>`;
+  if (s === "disabled") return `<span class="pill muted">Disabled</span>`;
+  return `<span class="pill subtle">${escHtml(state) || "&mdash;"}</span>`;
+}
+
+function schedResultPill(code, lastRun) {
+  if (!lastRun) return `<span class="pill muted">never run</span>`;
+  const n = Number(code);
+  if (n === 0)      return `<span class="pill good">OK</span>`;
+  if (n === 267009) return `<span class="pill neutral">running</span>`;    // 0x41301
+  if (n === 267011) return `<span class="pill muted">not yet run</span>`;  // 0x41303
+  const hex = (n >>> 0).toString(16).toUpperCase();
+  return `<span class="pill bad" title="Last task result 0x${hex}">err 0x${hex}</span>`;
+}
+
+function renderScheduledTasks(data) {
+  if (data === null) {
+    return `<div class="empty">Loading scheduled tasks&hellip; <span class="mono">(Get-ScheduledTask DM-*)</span></div>`;
+  }
+  if (data.error) {
+    return `<div class="empty">Couldn't enumerate scheduled tasks: ${escHtml(data.error)}</div>`;
+  }
+  if (data.available === false) {
+    return `<div class="empty">${escHtml(data.note || "Scheduled-task enumeration is only available on Windows.")}</div>`;
+  }
+  const tasks = data.tasks || [];
+  const gen = data.generated_at ? `Enumerated ${adoRelative(data.generated_at)}.` : "";
+  const banner = `<div class="sb-banner"><b>Windows Task Scheduler.</b> Every task matching <span class="mono">DM-*</span> &mdash; the schedules that run Nirvana's skills unattended. Read-only. ${gen} <button type="button" class="ghost" data-act="reload-scheduled" style="margin-left:.4rem">Refresh</button></div>`;
+  if (!tasks.length) {
+    return banner + `<div class="empty">No <span class="mono">DM-*</span> scheduled tasks registered.</div>`;
+  }
+  const rows = tasks.map((t) => {
+    const name = `<span class="mono" style="font-weight:600">${escHtml(t.name)}</span>`;
+    const expl = t.explanation
+      ? `<div title="${escHtml(t.explanation)}" style="max-width:66ch;line-height:1.4;max-height:2.8em;overflow:hidden;color:var(--cp-text-muted);font-size:.85rem">${escHtml(t.explanation)}</div>`
+      : `<span style="color:var(--cp-text-muted)">&mdash;</span>`;
+    const schedule = t.schedule
+      ? `<span class="mono" style="font-size:.82rem">${escHtml(t.schedule)}</span>`
+      : `<span style="color:var(--cp-text-muted)">&mdash;</span>`;
+    return `<tr>
+      <td>${name}</td>
+      <td>${expl}</td>
+      <td>${schedule}</td>
+      <td style="white-space:nowrap">${schedFmtDateTime(t.next_run)}</td>
+      <td style="white-space:nowrap">${schedFmtDateTime(t.last_run)} ${schedResultPill(t.last_result, t.last_run)}</td>
+      <td>${schedStatePill(t.state)}</td>
+    </tr>`;
+  }).join("");
+  return banner + `
+    <section class="sb-section">
+      <table class="sb-table">
+        <thead><tr><th>Task</th><th>What it does</th><th>Schedule</th><th>Next run</th><th>Last run</th><th>State</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>`;
+}
+
 function render() {
   renderCounts();
   renderCards();
@@ -1158,6 +1529,8 @@ async function patchItem(path, payload, label) {
     await api(path, { method: "PATCH", body: JSON.stringify(payload) });
     toast(label, "success");
     await loadBoard();
+    // My Day derives from the same stores; keep it in sync after a close/reopen.
+    loadMyDay(false);
   } catch (e) {
     toast(e.message, "error");
   }
@@ -1193,6 +1566,29 @@ function onCardsClick(ev) {
     setTab("scope-board");
     return;
   }
+  // My Day: a meeting/suggestion/focus row (or its prep button) can deep-link
+  // into another tab. These targets are divs or buttons, so handle them before
+  // the button-only guard below.
+  const goto = ev.target.closest('[data-act="goto"]');
+  if (goto) {
+    ev.preventDefault();
+    const gtab = goto.dataset.tab;
+    const gref = goto.dataset.ref;
+    if (gtab === "one-on-ones" && gref) {
+      setTab("one-on-ones");
+      setPartner(gref);
+    } else if (gtab) {
+      setTab(gtab);
+    }
+    return;
+  }
+  const reload = ev.target.closest('[data-act="reload-myday"]');
+  if (reload) {
+    reload.disabled = true;
+    reload.textContent = "Refreshing\u2026";
+    loadMyDay(true).then(() => toast("My Day refreshed.", "success"));
+    return;
+  }
   const btn = ev.target.closest("button");
   if (!btn) return;
   const card = btn.closest(".card");
@@ -1225,6 +1621,13 @@ function onCardsClick(ev) {
   if (act === "close-on")      return patchItem(`/api/one-on-ones/${encodeURIComponent(slug)}/${id}`, { action: "close"  }, `${id} closed`);
   if (act === "reopen-on")     return patchItem(`/api/one-on-ones/${encodeURIComponent(slug)}/${id}`, { action: "reopen" }, `${id} reopened`);
   if (act === "edit-on")       return openEditModal("one-on-one", id, slug);
+  if (act === "ping-owner")    return pingAdoOwner(id, btn);
+  if (act === "reload-scheduled") {
+    btn.disabled = true;
+    btn.textContent = "Refreshing\u2026";
+    loadScheduledTasks(true).then(() => toast("Scheduled tasks refreshed.", "success"));
+    return;
+  }
 
   if (btn.hasAttribute("data-pn-save")) {
     const root = btn.closest("[data-pn-slug]");
@@ -1375,7 +1778,7 @@ function wire() {
   document.querySelectorAll(".nav-item.filter").forEach((el) => {
     el.addEventListener("click", () => setFilter(el.dataset.filter));
   });
-  $("refresh-btn").addEventListener("click", () => loadBoard());
+  $("refresh-btn").addEventListener("click", () => { loadBoard(); loadMyDay(true); loadScheduledTasks(true); });
   $("theme-btn").addEventListener("click", () => {
     const cur = document.documentElement.getAttribute("data-theme");
     const next = cur === "dark" ? "light" : "dark";
@@ -1409,11 +1812,20 @@ function wire() {
       return;
     }
     loadBoard();
+    // Keep My Day current too (meetings are cached server-side, so this is a
+    // cheap recompute of the needs-attention / focus lists).
+    loadMyDay(false);
   }, 30000);
 }
 
 window.addEventListener("DOMContentLoaded", () => {
   wire();
   loadBoard();
+  // Warm My Day (the landing tab) so today's meetings + attention list are
+  // ready on first paint. Non-blocking.
+  loadMyDay(false);
+  // Warm the Scheduled tasks tab in the background so its sidebar count shows
+  // up and the tab opens instantly. Non-blocking; the main board never waits.
+  loadScheduledTasks(false);
 });
 

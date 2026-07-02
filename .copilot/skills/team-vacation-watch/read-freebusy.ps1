@@ -78,12 +78,17 @@ $ns = $ol.GetNamespace('MAPI')
 $people = @()
 foreach ($m in $roster) {
     $status = $null
+    $recurring = @()
     try {
         $recip = $ns.CreateRecipient($m.Display)
         $null = $recip.Resolve()
         if ($recip.Resolved) {
             $read = Read-FreeBusyCovering -Recip $recip -AsOf $asOf -Lookback $LookbackDays
             $status = Get-FreeBusyVacationStatus -FreeBusy $read.Fb -WindowStart $read.WindowStart -AsOf $asOf
+            # Recurring weekly OOF weekdays (e.g. a part-timer off every Wednesday). The engine
+            # subtracts these from the vacation working-day count so a standing weekly day-off
+            # never triggers a welcome-back; only UNEXPECTED absence counts.
+            $recurring = @(Get-RecurringOffDays -DailyOof $read.Fb -WindowStart $read.WindowStart)
         }
     } catch {
         Write-Verbose "free/busy read failed for $($m.Display): $($_.Exception.Message)"
@@ -93,12 +98,13 @@ foreach ($m in $roster) {
         $status = [pscustomobject]@{ on_vacation = $false; start = $null; end = $null; returned_today = $false; confidence = 'low' }
     }
     $people += [ordered]@{
-        name           = $m.Display
-        on_vacation    = [bool]$status.on_vacation
-        start          = $status.start
-        end            = $status.end
-        returned_today = [bool]$status.returned_today
-        confidence     = "$($status.confidence)"
+        name               = $m.Display
+        on_vacation        = [bool]$status.on_vacation
+        start              = $status.start
+        end                = $status.end
+        returned_today     = [bool]$status.returned_today
+        confidence         = "$($status.confidence)"
+        recurring_off_days = @($recurring)
     }
 }
 

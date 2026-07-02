@@ -2,12 +2,14 @@
 
 Local browser-based dashboard for the four Nirvana task stores Nir lives in:
 
+- **My Day** (landing view — today's meetings + what needs attention + what to focus on; read-only, synthesized)
 - **Todos** (`reports/personal-todos/todos.md`, PT-NNN)
 - **1:1s** (`reports/one-on-ones/<slug>.md`, ON-NNN per partner)
 - **Team Agenda** (`reports/team-agenda/open-discussions.md`, TA-NNN)
 - **AI Plan** (`reports/ai-plan/ai-plan.md`, AP-NNN — same section shape as Team Agenda)
 - **Scope board** (`reports/directs-scope/scope-board.md`, GFM tables - every cell editable in-place)
 - **SDK rotation** (`config/sdk-rotation.md`, GFM table - every cell editable, rows drag-to-reorder; column 0 auto-renumbered)
+- **Scheduled tasks** (read-only view of the `DM-*` Windows Task Scheduler entries that fire Nirvana's skills unattended)
 
 Nir already has Nirvana chat to add items by voice and daily emails to nudge
 him. The board is the *visual* surface: a Clawpilot-themed web app at
@@ -46,10 +48,11 @@ working unchanged. The board reads + writes the same files those skills do.
 
 | Method | Path | Effect |
 |---|---|---|
-| GET    | `/` | Board SPA (Todos / Agenda / AI Plan / 1:1s) |
+| GET    | `/` | Board SPA (My Day / Todos / Agenda / AI Plan / 1:1s / ...) |
 | GET    | `/explorer` | Serves the latest `reports/site/nirvana.html` (Nirvana Explorer). 503 with a "rebuild me" page if the artifact is missing. |
 | GET    | `/api/health` | `{ok:true,version}` |
 | GET    | `/api/board`  | Snapshot of all three sources |
+| GET    | `/api/my-day` | The **My Day** landing view: today's Outlook meetings (read live via COM, cached in-process ~120s), plus two synthesized lists recomputed from the current board snapshot on every call — `needs_attention` (overdue / due-today / snoozed-past todos, 1:1 prep for partners Nir is meeting today, recently-changed tracked ADO items, reminders firing today) and `focus` (a short ranked shortlist). `?refresh=1` forces a fresh calendar read. Degrades gracefully to empty meetings off-Windows / when Outlook is unavailable (`calendar_available:false`). Lazy-loaded by the UI (kept out of `/api/board` because of the ~1-2s Outlook read). All ranking lives in the pure, unit-tested `compute_my_day()`. |
 | POST   | `/api/todos`  | Shell out to `personal-todos/add-item.py` |
 | PATCH  | `/api/todos/PT-NNN` | Close / snooze / reopen via `markdown_io` |
 | POST   | `/api/one-on-ones/<slug>` | Shell out to `one-on-one-agenda/add-item.py` |
@@ -63,6 +66,7 @@ working unchanged. The board reads + writes the same files those skills do.
 | GET    | `/api/sdk-rotation` | Parsed view of `config/sdk-rotation.md` (same shape as scope-board plus `order_table_index` pointing at the `## Current order` table). Also embedded in `/api/board` under `sdk_rotation`. |
 | PATCH  | `/api/sdk-rotation` | Update one cell. Body `{table, row, col, value}`. Atomic write via `sdk_rotation_io.mutate_sdk_rotation_cell`. |
 | PATCH  | `/api/sdk-rotation/order` | Reorder the rows of the `## Current order` table. Body `{order: [int, ...]}` is a permutation of `[0..N-1]`. Column 0 (`#`) is auto-renumbered. Atomic write via `sdk_rotation_io.reorder_sdk_rotation_rows`. Powers the drag handle in the **SDK rotation** tab. |
+| GET    | `/api/scheduled-tasks` | Read-only enumeration of the `DM-*` Windows Task Scheduler entries (name / short explanation / human schedule / next+last run / last result / state). The explanation joins `config/schedules.json` (task -> skill) with `config/skills.json` (skill -> summary), falling back to the task's own description; the UI wraps it to ~2 lines with the full text on hover. Runs `Get-ScheduledTask` via PowerShell, cached ~60s in-process; `?refresh=1` forces a re-enumerate. Deliberately NOT embedded in `/api/board` (the ~2s enumeration would slow every board load); the UI lazy-loads it into the **Scheduled tasks** tab. Non-Windows returns `{available:false}`. |
 
 Server binds to `127.0.0.1` only. No auth - single-user, single-host.
 

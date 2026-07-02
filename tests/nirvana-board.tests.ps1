@@ -963,6 +963,23 @@ Describe 'API smoke (live server)' {
             Assert-Match 'Nirvana Board' $idx.Content
         }
 
+        It '/api/scheduled-tasks returns tasks + count + available' {
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/scheduled-tasks" -TimeoutSec 30
+            Assert-Equal 200 $resp.StatusCode
+            $sj = $resp.Content | ConvertFrom-Json
+            Assert-True ($sj.count -ge 0)
+            Assert-True ($sj.PSObject.Properties.Name -contains 'tasks')
+            Assert-True ($sj.PSObject.Properties.Name -contains 'available')
+            if ($sj.count -gt 0) {
+                Assert-True ($sj.tasks[0].PSObject.Properties.Name -contains 'explanation')
+            }
+        }
+
+        It '/api/scheduled-tasks?refresh=1 forces a re-enumerate and returns 200' {
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/scheduled-tasks?refresh=1" -TimeoutSec 30
+            Assert-Equal 200 $resp.StatusCode
+        }
+
         It '/api/todos POST rejects empty title with 400' {
             $threw = $false
             try {
@@ -1033,6 +1050,24 @@ Describe 'API smoke (live server)' {
                 }
             }
         }
+        It '/api/my-day returns meetings + needs_attention + focus + stats' {
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/my-day" -TimeoutSec 60
+            Assert-Equal 200 $resp.StatusCode
+            $mj = $resp.Content | ConvertFrom-Json
+            Assert-True ($mj.PSObject.Properties.Name -contains 'meetings')
+            Assert-True ($mj.PSObject.Properties.Name -contains 'needs_attention')
+            Assert-True ($mj.PSObject.Properties.Name -contains 'focus')
+            Assert-True ($mj.PSObject.Properties.Name -contains 'stats')
+            Assert-True ($mj.PSObject.Properties.Name -contains 'calendar_available')
+            Assert-True ($mj.stats.meetings -ge 0)
+            Assert-True ($mj.stats.needs_attention -ge 0)
+        }
+
+        It '/api/my-day?refresh=1 forces a re-read and returns 200' {
+            $resp = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$port/api/my-day?refresh=1" -TimeoutSec 60
+            Assert-Equal 200 $resp.StatusCode
+        }
+
     } finally {
         if ($proc -and -not $proc.HasExited) {
             try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch { }
@@ -1509,8 +1544,14 @@ Describe 'Board static carries 1:1 personal notes / milestones / summary cards (
 
 Describe 'serve.py v0.8.0 wires personal-notes + summary endpoints' {
     $serveText = Get-Content $serveScript -Raw -Encoding UTF8
-    It 'bumps VERSION to 0.8.0' {
-        Assert-Match 'VERSION\s*=\s*"0\.8\.0"' $serveText
+    It 'declares a VERSION at or beyond 0.8.0 (personal-notes/summary shipped in 0.8.0)' {
+        Assert-Match 'VERSION\s*=\s*"\d+\.\d+\.\d+"' $serveText
+        if ($serveText -match 'VERSION\s*=\s*"(\d+)\.(\d+)\.(\d+)"') {
+            $v = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $Matches[3])
+            Assert-True ($v -ge [version]'0.8.0')
+        } else {
+            throw 'VERSION not found in serve.py'
+        }
     }
     It 'declares mutate_personal_notes(paths, slug, payload)' {
         Assert-Match 'def mutate_personal_notes\(' $serveText
@@ -1977,6 +2018,53 @@ Describe 'Board static carries sdk-rotation editor + DnD' {
     }
 }
 
+Describe 'Board static carries Scheduled tasks tab' {
+    $indexText = Get-Content -Path $indexHtml   -Raw -Encoding UTF8
+    $appJsText = Get-Content -Path $appJs       -Raw -Encoding UTF8
+    $serveText = Get-Content -Path $serveScript -Raw -Encoding UTF8
+    $skillText = Get-Content -Path $skillDoc    -Raw -Encoding UTF8
+
+    It 'index.html declares a Scheduled tasks nav item with a counter' {
+        Assert-Match 'data-tab="scheduled-tasks"' $indexText
+        Assert-Match 'id="count-scheduled-tasks"' $indexText
+    }
+    It 'app.js renders + lazy-loads the scheduled-tasks tab' {
+        Assert-Match 'STATE\.tab === "scheduled-tasks"' $appJsText
+        Assert-Match 'function renderScheduledTasks' $appJsText
+        Assert-Match 'function loadScheduledTasks' $appJsText
+        Assert-Match '/api/scheduled-tasks' $appJsText
+    }
+    It 'app.js renders the "What it does" explanation column' {
+        Assert-Match 'What it does' $appJsText
+        Assert-Match 't\.explanation' $appJsText
+    }
+    It 'serve.py joins schedules.json + skills.json for the explanation' {
+        Assert-Match 'def _scheduled_task_meta' $serveText
+        Assert-Match 'def _explain_task' $serveText
+        Assert-Match 'schedules\.json' $serveText
+    }
+    It 'app.js hides the + Add button on the scheduled-tasks tab' {
+        Assert-Match 'tab === "scheduled-tasks"' $appJsText
+        Assert-Match 'addBtn\.style\.display' $appJsText
+    }
+    It 'serve.py routes GET /api/scheduled-tasks via a cached snapshot' {
+        Assert-Match '/api/scheduled-tasks' $serveText
+        Assert-Match 'def scheduled_tasks_snapshot' $serveText
+        Assert-Match "Get-ScheduledTask -TaskName 'DM-\*'" $serveText
+    }
+    It 'SKILL.md documents the scheduled-tasks endpoint' {
+        Assert-Match '/api/scheduled-tasks' $skillText
+    }
+    It 'serve.py VERSION is bumped to at least 0.9.0 for the scheduled-tasks tab' {
+        if ($serveText -match 'VERSION\s*=\s*"(\d+)\.(\d+)\.(\d+)"') {
+            $v = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $Matches[3])
+            Assert-True ($v -ge [version]'0.9.0')
+        } else {
+            throw 'VERSION not found in serve.py'
+        }
+    }
+}
+
 Describe 'Board static app.js parses as valid JavaScript' {
     $appJsText = Get-Content -Path $appJs -Raw -Encoding UTF8
     # Regression: on 2026-05-28 a SKILL edit clobbered "function render() {"
@@ -2003,6 +2091,89 @@ Describe 'Board static app.js parses as valid JavaScript' {
             Assert-Equal 0 $exit ("node --check failed: " + ($out -join "`n"))
         } finally {
             if (Test-Path $tmpJs) { Remove-Item -Path $tmpJs -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
+Describe 'My Day tab (landing view)' {
+    $serveText = Get-Content -Path $serveScript -Raw -Encoding UTF8
+    $appJsText = Get-Content -Path $appJs -Raw -Encoding UTF8
+    $indexText = Get-Content -Path $indexHtml -Raw -Encoding UTF8
+    $styleText = Get-Content -Path $styleCss -Raw -Encoding UTF8
+
+    It 'serve.py defines compute_my_day + my_day_snapshot and routes /api/my-day' {
+        Assert-Match 'def compute_my_day' $serveText
+        Assert-Match 'def my_day_snapshot' $serveText
+        Assert-Match '/api/my-day' $serveText
+        Assert-Match '_CALENDAR_PS' $serveText
+    }
+    It 'index.html carries a My Day nav item (and it is the default active tab)' {
+        Assert-Match 'data-tab="my-day"' $indexText
+        Assert-Match 'nav-item active" data-tab="my-day"' $indexText
+    }
+    It 'app.js defines renderMyDay + loadMyDay and fetches /api/my-day' {
+        Assert-Match 'function renderMyDay' $appJsText
+        Assert-Match 'function loadMyDay' $appJsText
+        Assert-Match '/api/my-day' $appJsText
+    }
+    It 'style.css carries the .myday-grid layout' {
+        Assert-Match '\.myday-grid' $styleText
+    }
+
+    It 'compute_my_day ranks overdue/due-today/1:1-prep/ADO/reminder correctly and drops declined meetings' {
+        $pyPath = Join-Path ([IO.Path]::GetTempPath()) ("nirvana-board-myday-" + [Guid]::NewGuid().ToString('N').Substring(0,8) + ".py")
+        $py = @"
+import sys, datetime
+sys.path.insert(0, r'$boardDir')
+import serve as srv
+
+today = datetime.date(2026, 7, 1)
+board = {
+  'todos': [
+    {'id':'PT-001','title':'Overdue','status':'open','priority':'M','due':'2026-06-28','snoozed_until':'-'},
+    {'id':'PT-002','title':'DueToday','status':'open','priority':'H','due':'2026-07-01','snoozed_until':'-'},
+    {'id':'PT-003','title':'HighPri','status':'open','priority':'H','due':'-','snoozed_until':'-'},
+    {'id':'PT-004','title':'SnzPast','status':'snoozed','priority':'M','due':'-','snoozed_until':'2026-06-30'},
+    {'id':'PT-005','title':'Done','status':'done','priority':'H','due':'2026-06-01','snoozed_until':'-'},
+  ],
+  'one_on_ones': [{'slug':'Your Manager-rothschild','label':'Your Manager Rothschild','open_count':3}],
+  'ado_tracker': {'items':[{'id':999,'title':'Fix ingestion','state':'Active','changed_date':'2026-06-30'}]},
+}
+meetings = [
+  {'subject':'Your Manager - 1x1','start':'2026-07-01T11:00:00','end':'2026-07-01T11:30:00','allDay':False,'response':1,'busy':2},
+  {'subject':'Declined mtg','start':'2026-07-01T09:00:00','end':'2026-07-01T09:30:00','allDay':False,'response':4,'busy':2},
+]
+reminders = [{'id':'RM-001','title':'ping','when':'today','kind':'absolute'}]
+r = srv.compute_my_day(board, meetings, reminders, today)
+print('MEETINGS', r['stats']['meetings'])
+print('ONEONONE', sum(1 for m in r['meetings'] if m.get('is_one_on_one')))
+print('NEEDS0', r['needs_attention'][0]['tag'])
+print('HASPREP', any(n['tag']=='1:1 prep' for n in r['needs_attention']))
+print('HASADO', any(n['tag']=='ADO' for n in r['needs_attention']))
+print('HASREM', any(n['tag']=='Reminder' for n in r['needs_attention']))
+print('FOCUS0', r['focus'][0]['ref'])
+print('FOCUS1', r['focus'][1]['ref'])
+print('OVERDUE', r['stats']['overdue'])
+print('DUETODAY', r['stats']['due_today'])
+print('SNZ', r['stats']['snoozed_past'])
+"@
+        [System.IO.File]::WriteAllText($pyPath, $py, [System.Text.UTF8Encoding]::new($false))
+        try {
+            $out = & python $pyPath 2>&1 | Out-String
+            Assert-Equal 0 $LASTEXITCODE $out
+            Assert-Match 'MEETINGS 1' $out       # declined meeting dropped
+            Assert-Match 'ONEONONE 1' $out       # Your Manager 1x1 detected
+            Assert-Match 'NEEDS0 Overdue' $out   # overdue ranked first
+            Assert-Match 'HASPREP True' $out
+            Assert-Match 'HASADO True' $out
+            Assert-Match 'HASREM True' $out
+            Assert-Match 'FOCUS0 PT-001' $out    # overdue focus first
+            Assert-Match 'FOCUS1 PT-002' $out    # due-today focus second
+            Assert-Match 'OVERDUE 1' $out
+            Assert-Match 'DUETODAY 1' $out
+            Assert-Match 'SNZ 1' $out
+        } finally {
+            Remove-Item -Path $pyPath -ErrorAction SilentlyContinue
         }
     }
 }

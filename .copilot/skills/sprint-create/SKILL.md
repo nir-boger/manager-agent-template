@@ -16,18 +16,20 @@ Maintain a rolling window of pre-created 2-week sprint iterations for the **Your
   - `nextStart` = previous sprint's `finishDate + 1 day` (e.g. 2Wk23 finishes Sat 2026-05-16, 2Wk24 starts Sun 2026-05-17)
 - Microsoft fiscal year: FY starts **July 1**. FY26 = Jul 1 2025 – Jun 30 2026.
 - Quarters: Q1=Jul–Sep, Q2=Oct–Dec, Q3=Jan–Mar, Q4=Apr–Jun
-- Sprint numbers (`2WkNN`) run sequentially **within a fiscal year**; they reset to `2Wk01` at each FY boundary. The sprint that **starts** in a given FY belongs to that FY (a sprint that crosses the boundary stays under the FY/Q where its start date falls).
+- Sprint numbers (`2WkNN`) run sequentially **within a fiscal year**; they reset to `2Wk01` at each FY boundary.
+- **Classify every sprint by its _midpoint_, not its start date.** A sprint belongs to the FY **and** quarter that contains `midpoint = startDate + 7 days` (equivalently: where the majority of its 14 days fall). So a sprint that straddles a boundary lands wherever most of its days are. This matters most at the **FY boundary**: the sprint spanning late-June → mid-July has its midpoint in early July, so it becomes **`2Wk01` of the new FY** (under `FY{new}\Q1\2Wk`), **not** the next number under the old FY's Q4.
+  - Worked example: `2Wk26` = Jun 14 → Jun 27 (midpoint Jun 21 → FY26 Q4). The next sprint = Jun 28 → Jul 11 (midpoint **Jul 5 → FY27 Q1**) ⇒ it is **`2Wk01` under `One\FY27\Q1\2Wk`**, the first sprint of FY27 — *not* `2Wk27` under FY26 Q4.
 - **Lookahead horizon:** `LookaheadDays = 60` (≈ 2 months, ≈ 4–5 sprints). This is the rolling window the skill maintains. Override via env var `NIRVANA_SPRINT_LOOKAHEAD_DAYS` if a future caller needs a different value.
 
 ## Steps
 
 1. **Find the current sprint** using `ado-work_list_team_iterations` with `timeframe=current` for project `One`, team `Your Team`. Capture `currentNumber`, `currentFinishDate`.
 2. **Build the upcoming-sprint plan.** Starting from `currentFinishDate + 1 day`, generate consecutive 14-day Sun→Sat sprints until the next computed `startDate` is **strictly greater than `today + LookaheadDays`**. For each:
-   - `number` = previous + 1, with FY rollover (when `startDate.month >= 7` and the previous sprint's start was June, reset `number` to `01` because we crossed into a new FY).
-   - `startDate` (Sun 00:00 UTC), `finishDate = startDate + 13 days` (Sat 00:00 UTC).
-   - `FY{YY}\Q{N}` derived from `startDate`'s calendar month (per the quarters table above).
+   - `startDate` (Sun 00:00 UTC), `finishDate = startDate + 13 days` (Sat 00:00 UTC), `midpoint = startDate + 7 days`.
+   - `FY{YY}\Q{N}` derived from the **`midpoint`**'s calendar month (per the quarters table above) — **never** from `startDate`. (A late-June start whose midpoint is in July classifies as the new FY's Q1.)
+   - `number`: if this sprint's `midpoint` FY **equals** the previous sprint's `midpoint` FY, `number = previous + 1`; if the `midpoint` crossed into a **new** FY, **reset `number` to `01`**.
    - Full path: `One\FY{YY}\Q{N}\2Wk\2Wk{NN}`.
-3. **Inventory existing nodes.** Call `ado-work_list_iterations` with `project=One, depth=4` once and search the tree. Mark each planned sprint as either `exists-at-correct-path`, `exists-at-wrong-path` (e.g. accidentally at project root), or `missing`.
+3. **Inventory existing nodes.** Call `ado-work_list_iterations` with `project=One, depth=4` once and search the tree. **Match each planned sprint by its full target path** `One\FY{YY}\Q{N}\2Wk\2Wk{NN}`, **not** by the `2Wk{NN}` leaf name alone — leaf names repeat across fiscal years (e.g. both `One\FY26\Q1\2Wk\2Wk01` from 2025 and `One\FY27\Q1\2Wk\2Wk01` exist), so a name-only match collides and produces false `exists-at-wrong-path` reports. Mark each planned sprint as `exists-at-correct-path` (a node exists at the full target path), `exists-at-wrong-path` (a node with that number exists but under a different parent — record the actual path), or `missing`.
 4. **For each planned sprint, in chronological order:**
    - **`exists-at-correct-path`** → no creation needed.
    - **`missing`** → call `ado-work_create_iterations` with `project=One, iterations=[{iterationName:"2Wk{NN}", startDate, finishDate}]`. The ADO MCP tool accepts only leaf names and may place under project root; on success, attempt the move via the iteration tree REST API if supported. If creation returns a permission error (TF50309 *"…lacks permissions: Create child nodes"*) or "No iterations were created", **swallow the error**, mark the sprint `create=failed:perms`, and add `(2WkNN, startDate, finishDate, fullPath)` to a `needsAdmin` list.
@@ -44,7 +46,7 @@ Maintain a rolling window of pre-created 2-week sprint iterations for the **Your
 
    Then, only if today **is** the Thursday-before-start, also skip announcement if:
    - The next sprint is in the `needsAdmin` list (no point announcing a sprint that doesn't exist yet) — log `teams=skipped:awaiting-admin`, OR
-   - The log already has `| 2Wk{NN} | … | teams=posted` for that number — log `teams=skipped:already-announced`.
+   - The log already has a `teams=posted` line whose `FY{YY} Q{N}` **and** `2Wk{NN}` both match this sprint (equivalently, its full path `One\FY{YY}\Q{N}\2Wk\2Wk{NN}`) — log `teams=skipped:already-announced`. Match on **FY + number**, never the bare `2Wk{NN}`: numbers reset each FY (a `2Wk01` recurs every July), so a bare-number match would wrongly suppress a future FY's same-numbered sprint.
 
    When the Thursday-before-start gate passes and neither skip condition fires, post the announcement (idempotent — single line in the log gates all future runs).
    - Build the new-sprint taskboard URL:
@@ -67,7 +69,7 @@ Maintain a rolling window of pre-created 2-week sprint iterations for the **Your
      </div>
      ```
      - `{startHuman}` / `{finishHuman}` formatted like `May 3` / `May 16` (no leading zero, no year).
-     - `{prevNN}` = `NN - 1` zero-padded to 2 digits.
+     - `{prevNN}` = the **current (closing) sprint's** two-digit number, i.e. `currentNumber` from step 1 — **not** `NN - 1`. The "please update … before it closes Saturday" reminder is about the sprint that is ending. At an FY rollover the next sprint is `2Wk01` but the closing sprint is the prior FY's last sprint (e.g. `2Wk26`), so `NN - 1` would wrongly render `2Wk00`. (In the common same-FY case `currentNumber` equals `NN - 1` anyway.)
      - `{joke}` = pick one (deterministic by sprint number, e.g. `pool[NN % len]`) from the rotating pool below. Sprint/agile-themed only.
    - Send via Outlook COM exactly as in `post-to-teams/SKILL.md` step 5 (From=To=`someone@example.com`). **Do NOT call the post-to-teams skill interactively** — inline the COM send so there's no preview prompt.
    - Preflight: if Outlook isn't running, **skip** the post (don't throw) and record `teams=skipped:no-outlook` in the log.
@@ -112,9 +114,10 @@ Maintain a rolling window of pre-created 2-week sprint iterations for the **Your
 - Do **not** move unfinished work items from the previous sprint (the user handles that manually).
 - Do **not** create child work items or modify any work items.
 - Do **not** prompt the user — this skill runs non-interactively from Task Scheduler.
-- Do **not** post to Teams for any sprint other than the imminent rollover (`current + 1`). Pre-creation is silent by design.
+- Do **not** post to Teams for any sprint other than the imminent rollover — the **next chronological sprint** (`current + 1`, or `2Wk01` at an FY boundary). Pre-creation is silent by design.
+- Do **not** classify a sprint's FY / quarter / number by its **start date** — always use the **midpoint** (`startDate + 7 days`). The late-June → mid-July sprint is `2Wk01` of the new FY, **not** `2Wk27` of the old one. (This was a real bug on 2026-06-25: the start-date rule mislabeled the FY27 kickoff as `2Wk27/FY26` and suppressed its Teams announcement.)
 - Do **not** post to Teams on any day other than the **Thursday immediately before the next sprint's Sunday `startDate`** (`startDate - 3 days`, Asia/Jerusalem). Posting early (e.g. on the first day of the current sprint) or late is worse than not posting at all.
-- Do **not** post to Teams if the log shows we've already posted for this sprint (`teams=posted` for `2Wk{NN}`).
+- Do **not** post to Teams if the log shows we've already posted for this sprint (`teams=posted` for the same **`FY{YY} Q{N}` + `2Wk{NN}`** / full path — not the bare number, which recurs each FY).
 - Do **not** let a Teams post or admin-alert email failure abort the skill — sprint pre-creation/assignment is the primary deliverable.
 - Do **not** spam Nir with the admin-alert email — gate on `alert=sent:YYYY-MM-DD:2Wk{NN}` so it fires at most once per sprint per calendar day.
 - Do **not** apply the previous "4 days proximity" self-guard — the rolling lookahead replaces it.

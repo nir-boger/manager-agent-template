@@ -30,7 +30,7 @@ This is a **fully deterministic** skill &mdash; there is **no copilot agent / LL
 - **State dir**: `<repo>\.copilot\skills\team-vacation-watch\state\` &mdash; `vacation-status.json` (last snapshot) and `welcomed.json` (idempotency ledger). **Managed only by `apply-vacation-state.ps1`.**
 - **Daily log**: `<repo>\reports\team-vacation-watch\YYYY-MM-DD.md`.
 - **Timezone**: all date math is **Israel local time**. Vacation **`end` is inclusive** &rarr; **return date = `end` + 1 day** (the helper enforces this).
-- **Config**: `max_late_welcome_days = 2` (the helper won't surface a returnee whose return is more than 2 days stale). `min_working_days_for_welcome = 2` (a vacation must cost **at least 2 Israel working days** &mdash; Sun&ndash;Thu &mdash; or no welcome-back is posted; see the gate below).
+- **Config**: `max_late_welcome_days = 2` (the helper won't surface a returnee whose return is more than 2 days stale). `min_working_days_for_welcome = 2` (a vacation must cost **at least 2 Israel working days** &mdash; Sun&ndash;Thu &mdash; or no welcome-back is posted; see the gate below). **Recurring weekly OOF weekdays are subtracted first** &mdash; see "Recurring day-off subtraction" below.
 
 ## How free/busy decoding works
 `Recipient.FreeBusy($start, $minPerChar, $true)` returns one character per sampled slot, starting at `$start`:
@@ -62,6 +62,13 @@ We sample **hourly** (60 min/char) and collapse each day to a single OOF flag (`
 > - A **single** working day flanked by the weekend (e.g. Thu+Fri+Sat &rarr; 1 working day).
 >
 > The gate is **silent** &mdash; no returnee, no ledger `pending` claim, no Teams post; the snapshot still flips to not-on-vacation. If the vacation span is unknown (no prior `start`/`end`, e.g. a first-run explicit return) the length can't be measured, so the gate does **not** suppress &mdash; a genuine return is never swallowed just because its length is unknown.
+>
+> ### Recurring day-off subtraction (why Lea stopped getting welcomed every Thursday)
+> The gate above counts **only unexpected absence**. A teammate can have a **standing weekly day-off** &mdash; e.g. a part-timer who is OOF **every Wednesday** (Teammate2). Most weeks that is 1 working day and the `>=2` gate drops it, but a week where she is *also* off one adjacent weekday (Tue+Wed) used to reach 2 working days and wrongly fire a "welcome back" &mdash; **every Thursday**. The band-aid only ever caught the short weeks.
+>
+> The fix subtracts each person's recurring-off weekdays from the working-day count before applying the gate:
+> - `read-freebusy.ps1` computes `recurring_off_days` (int[] of `DayOfWeek`, 0=Sun..6=Sat) from the multi-week free/busy window via `Get-RecurringOffDays`. A working weekday is "recurring off" when it is OOF on a strong majority (&ge;60%) of its &ge;3 observed occurrences **and** appears OOF *in isolation* (not part of a contiguous multi-day block) in &ge;2 weeks. Isolation is measured against the nearest **working-day** neighbours, so the Fri/Sat gap is ignored and it also catches an off-every-Sunday / off-every-Thursday pattern. A genuine contiguous vacation (interior weekdays never isolated) is never mistaken for a recurring pattern.
+> - `apply-vacation-state.ps1` builds the gate's working-day set as **Sun&ndash;Thu minus `recurring_off_days`** (`Get-EffectiveWorkingDays`, never empty). So Lea's Tue+Wed week counts only Tue = **1 unexpected working day &rarr; suppressed**, while a real Sun&ndash;Thu vacation still counts &ge;2 and is welcomed. Each surfaced returnee carries `vac_recurring_off` for observability.
 
 ## Hard prerequisites
 - Outlook desktop running (the runner ensures this). If Outlook is unavailable, the runner logs `outlook=down` and exits cleanly &mdash; no scan, no posts. (Free/busy needs Outlook; there's no offline fallback.)
@@ -79,7 +86,7 @@ We sample **hourly** (60 min/char) and collapse each day to a single OOF flag (`
 ```
 powershell -File read-freebusy.ps1 -PeopleDir <people> -AsOfDate <today> -OutJsonPath <temp.json>
 ```
-Emits `{ "as_of":"YYYY-MM-DD", "people":[ { "name","on_vacation","start","end","returned_today","confidence" } ] }`. Unresolved/error members are conservatively `on_vacation:false, confidence:"low"`.
+Emits `{ "as_of":"YYYY-MM-DD", "people":[ { "name","on_vacation","start","end","returned_today","confidence","recurring_off_days" } ] }`. Unresolved/error members are conservatively `on_vacation:false, confidence:"low"`. `recurring_off_days` is an int[] of standing weekly OOF weekdays (0=Sun..6=Sat) the gate subtracts.
 
 ### 2. Run the scan (the engine does every write)
 ```
@@ -89,7 +96,7 @@ powershell -File apply-vacation-state.ps1 -Mode scan -WorkIqJsonPath <temp.json>
 ```
 VACWATCH_RESULT: { "mode":"scan","as_of":"...","dry_run":false,"first_run":false,
   "on_vacation":["oz-Teammate8", ...],"persona_updated":14,
-  "returnees":[ {"alias":"lea-Teammate2","first_name":"Lea","return_date":"...","reason":"transition"} ],
+  "returnees":[ {"alias":"lea-Teammate2","first_name":"Lea","return_date":"...","reason":"transition","vac_recurring_off":[]} ],
   "unmatched_workiq_names":[] }
 ```
 Each `returnees[]` entry already has a **`pending`** claim written to the ledger by the scan. If the engine exits non-zero, it touched nothing &rarr; log `scan=failed` and stop.
